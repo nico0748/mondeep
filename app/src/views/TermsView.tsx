@@ -4,9 +4,9 @@ import { go, useLoad } from "../hooks";
 import { fmtDay, pct } from "../format";
 import { Counts, ErrorNote, Tags } from "../components/bits";
 
-export function TermsView() {
+export function TermsView({ initialTag = "" }: { initialTag?: string }) {
   const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
+  const [tag, setTag] = useState(initialTag);
   const { data, error } = useLoad(() => api.listTerms(tag, query), [tag, query]);
   const tags = useLoad(() => api.allTags(), []);
   return (
@@ -19,6 +19,7 @@ export function TermsView() {
             <option value="">すべてのタグ</option>
             {(tags.data ?? []).map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <button className="more" onClick={() => go("tags")}>タグを管理</button>
         </div>
       </header>
       <ErrorNote error={error} />

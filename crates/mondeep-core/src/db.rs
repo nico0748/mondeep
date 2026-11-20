@@ -137,6 +137,23 @@ pub const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (term_id, kind, element_id)
     );
     "#,
+    // v3: 手動修正（判定の上書きと、問題ごとのメモ）。上書き前の判定は original_verdict に残す
+    r#"
+    ALTER TABLE attempts ADD COLUMN original_verdict TEXT
+        CHECK (original_verdict IS NULL OR original_verdict IN ('correct', 'partial', 'incorrect'));
+    ALTER TABLE attempts ADD COLUMN overridden_at TEXT;
+    ALTER TABLE questions ADD COLUMN note TEXT;
+    ALTER TABLE questions ADD COLUMN note_updated_at TEXT;
+
+    CREATE TRIGGER trg_questions_note AFTER UPDATE OF note ON questions BEGIN
+        DELETE FROM search_index WHERE kind = 'note' AND ref_id = new.id;
+        INSERT INTO search_index(kind, ref_id, term_id, body)
+        SELECT 'note', new.id, new.term_id, new.note WHERE coalesce(new.note, '') <> '';
+    END;
+    CREATE TRIGGER trg_questions_ad_note AFTER DELETE ON questions BEGIN
+        DELETE FROM search_index WHERE kind = 'note' AND ref_id = old.id;
+    END;
+    "#,
 ];
 
 /// DB を開き、WAL・外部キーを有効にしてマイグレーションを流す。親フォルダがなければ作る。

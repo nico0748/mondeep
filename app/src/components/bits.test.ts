@@ -4,7 +4,7 @@ import type { QuestionSummary } from "../types";
 
 const q = (id: number, parent: number | null, depth: number): QuestionSummary => ({
   id, parent_id: parent, depth, session_id: 1, term_id: 1, format: "term_to_meaning", prompt: `q${id}`,
-  model_answer: null, created_at: "", headword: "XSS", latest_verdict: null, attempt_count: 0,
+  model_answer: null, created_at: "", note: null, headword: "XSS", latest_verdict: null, attempt_count: 0,
 });
 
 describe("深掘りの木の並び", () => {

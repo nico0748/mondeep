@@ -6,10 +6,12 @@ import { FORMAT_LABEL } from "../types";
 import { Counts, ErrorNote, VerdictMark } from "../components/bits";
 import { Markdown } from "../components/Markdown";
 import { DiagramFigure } from "../components/DiagramFigure";
+import { buildExport, OBSIDIAN_FOLDER } from "../obsidian";
 
 export function TermView({ id }: { id: number }) {
   const { data, error, reload } = useLoad(() => api.termCard(id), [id]);
   const [tagDraft, setTagDraft] = useState("");
+  const [exportNote, setExportNote] = useState<string | null>(null);
   if (error) return <section className="view"><ErrorNote error={error} /></section>;
   if (!data) return <section className="view" aria-busy="true" />;
   const { term, counts, accuracy, review_states, questions, latest_explanation, max_correct_depth } = data;
@@ -24,6 +26,15 @@ export function TermView({ id }: { id: number }) {
     await api.setTermTags(term.id, [...term.tags, t]);
     setTagDraft("");
     reload();
+  };
+  const exportNoteFile = async () => {
+    try {
+      const files = buildExport([await api.termExport(term.id)]);
+      const dir = await api.exportFiles(OBSIDIAN_FOLDER, files);
+      setExportNote(`${dir} に書き出しました（ノート 1 枚${files.length > 1 ? `と図 ${files.length - 1} 枚` : ""}）。Vault にコピーすると Obsidian で開けます。`);
+    } catch (e) {
+      setExportNote(`書き出せませんでした: ${e}`);
+    }
   };
   const removeTag = async (t: string) => {
     await api.setTermTags(term.id, term.tags.filter((x) => x !== t));
@@ -42,9 +53,13 @@ export function TermView({ id }: { id: number }) {
           ))}
           <input className="tag-input" value={tagDraft} placeholder="タグを追加" onChange={(e) => setTagDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTag()} aria-label="タグを追加" />
         </div>
-        <button className={`flag-toggle ${term.needs_review ? "on" : ""}`} onClick={toggle} aria-pressed={term.needs_review}>
-          {term.needs_review ? "要復習の印を外す" : "要復習の印を付ける"}
-        </button>
+        <div className="entry-actions">
+          <button className={`flag-toggle ${term.needs_review ? "on" : ""}`} onClick={toggle} aria-pressed={term.needs_review}>
+            {term.needs_review ? "要復習の印を外す" : "要復習の印を付ける"}
+          </button>
+          <button className="more" onClick={exportNoteFile}>Obsidian 用に書き出す</button>
+        </div>
+        {exportNote && <p className="note export-note" role="status">{exportNote}</p>}
       </header>
 
       <dl className="stats">

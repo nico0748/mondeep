@@ -3,7 +3,7 @@ import { api } from "../api";
 import { go, useLoad } from "../hooks";
 import { ErrorNote } from "../components/bits";
 
-const KIND_LABEL = { term: "用語", question: "問題文", explanation: "解説" } as const;
+const KIND_LABEL = { term: "用語", question: "問題文", note: "メモ", explanation: "解説" } as const;
 
 export function SearchView() {
   const [input, setInput] = useState("");
@@ -18,7 +18,7 @@ export function SearchView() {
       <header className="view-head">
         <h1>検索</h1>
       </header>
-      <input className="search-box" type="search" autoFocus placeholder="用語・問題文・解説を検索" value={input} onChange={(e) => setInput(e.target.value)} aria-label="検索キーワード" />
+      <input className="search-box" type="search" autoFocus placeholder="用語・問題文・解説・メモを検索" value={input} onChange={(e) => setInput(e.target.value)} aria-label="検索キーワード" />
       <ErrorNote error={error} />
       {keyword.trim() && data && data.length === 0 && <p className="empty">「{keyword}」を含む記録はありません。</p>}
       <ul className="hits">

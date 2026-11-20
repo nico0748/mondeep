@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウから呼べる操作。学習データの閲覧・要復習の印・タグ・図の位置の微調整・削除・設定の追記・外部リンクを開くことだけを許可する。",
+  "description": "メインウィンドウから呼べる操作。学習データの閲覧・要復習の印・タグの編集・判定の手動修正とメモ・図の位置の微調整・統計・書き出しとバックアップ・削除・設定の追記・外部リンクを開くことだけを許可する。",
   "windows": [
     "main"
   ],
@@ -25,6 +25,16 @@
     "allow-delete-session",
     "allow-install-mcp-config",
     "allow-open-external",
-    "allow-export-file"
+    "allow-export-file",
+    "allow-export-files",
+    "allow-backup-now",
+    "allow-override-verdict",
+    "allow-set-question-note",
+    "allow-tag-stats",
+    "allow-rename-tag",
+    "allow-remove-tag",
+    "allow-stats",
+    "allow-term-export",
+    "allow-export-all"
   ]
 }

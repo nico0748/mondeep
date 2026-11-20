@@ -4,7 +4,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use chrono::{NaiveDate, SecondsFormat, Utc};
+use chrono::{DateTime, Days, Local, NaiveDate, SecondsFormat, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
@@ -88,6 +88,10 @@ pub struct HistoryEntry {
     pub latest_answer: Option<String>,
     pub latest_verdict: Option<Verdict>,
     pub latest_reason: Option<String>,
+    /// 判定を Nico さんが手で直したときの、元の判定
+    pub original_verdict: Option<Verdict>,
+    /// Nico さんのメモ
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,6 +107,15 @@ pub struct HistoryGroup {
     pub session: SessionListItem,
     pub questions: Vec<QuestionSummary>,
 }
+
+/// メモの最大文字数。
+const MAX_NOTE_CHARS: usize = 10_000;
+/// タグ名の最大文字数。
+const MAX_TAG_CHARS: usize = 40;
+/// 統計で「タグなし」の用語をまとめる名前。
+pub const UNTAGGED: &str = "（タグなし）";
+/// 深掘りの段数の分布で、最後の区分にまとめる段数。
+const HIST_MAX_LEVEL: usize = 4;
 
 /// 微調整で動かせる最大量（px）。
 const MAX_ADJUST: f64 = 2000.0;
@@ -175,6 +188,7 @@ fn question_from_row(r: &Row) -> rusqlite::Result<Question> {
         parent_id: r.get("parent_id")?,
         depth: r.get("depth")?,
         created_at: r.get("created_at")?,
+        note: r.get("note")?,
     })
 }
 
@@ -199,6 +213,8 @@ fn attempt_from_row(r: &Row) -> rusqlite::Result<Attempt> {
         verdict: Verdict::parse(&r.get::<_, String>("verdict")?).map_err(conv_err)?,
         reason: r.get("reason")?,
         answered_at: r.get("answered_at")?,
+        original_verdict: opt_verdict(r.get("original_verdict")?)?,
+        overridden_at: r.get("overridden_at")?,
     })
 }
 
@@ -426,6 +442,56 @@ impl Store {
         let mut stmt = self.conn.prepare("SELECT DISTINCT j.value FROM terms, json_each(terms.tags) j ORDER BY 1")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// タグごとの用語数（タグ管理画面）。
+    pub fn tag_stats(&self) -> Result<Vec<TagStat>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT j.value, count(DISTINCT terms.id) FROM terms, json_each(terms.tags) j
+             GROUP BY j.value ORDER BY j.value COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| Ok(TagStat { tag: r.get(0)?, term_count: r.get(1)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// タグの名前を変える。新しい名前のタグがすでにあれば 1 つにまとめる。戻り値は書き換えた用語の数。
+    pub fn rename_tag(&self, old: &str, new: &str) -> Result<usize> {
+        let new = new.trim();
+        if new.is_empty() {
+            return Err(Error::Invalid("新しいタグ名が空です".into()));
+        }
+        if new.chars().count() > MAX_TAG_CHARS {
+            return Err(Error::Invalid(format!("タグ名は {MAX_TAG_CHARS} 文字までです")));
+        }
+        self.map_tag(old, Some(new))
+    }
+
+    /// タグをすべての用語から外す。戻り値は書き換えた用語の数。
+    pub fn remove_tag(&self, tag: &str) -> Result<usize> {
+        self.map_tag(tag, None)
+    }
+
+    fn map_tag(&self, old: &str, new: Option<&str>) -> Result<usize> {
+        self.in_savepoint(|| {
+            let mut stmt = self.conn.prepare(
+                "SELECT t.id, t.tags FROM terms t WHERE EXISTS (SELECT 1 FROM json_each(t.tags) j WHERE j.value = ?1)",
+            )?;
+            let rows = stmt
+                .query_map([old], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let now = now_iso();
+            for (id, tags) in &rows {
+                let mapped: Vec<String> = json_vec(tags.clone())
+                    .into_iter()
+                    .filter_map(|t| if t == old { new.map(str::to_string) } else { Some(t) })
+                    .collect();
+                self.conn.execute(
+                    "UPDATE terms SET tags = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![serde_json::to_string(&clean_list(&mapped))?, now, id],
+                )?;
+            }
+            Ok(rows.len())
+        })
     }
 
     /// 用語ごとの判定数（各問題の最新の判定で数える）。
@@ -743,7 +809,7 @@ impl Store {
         } else {
             None
         };
-        let review = self.update_review(q, today)?;
+        let review = self.update_review(q, today, &now)?;
         Ok(AttemptResult { attempt_id, explanation_id, review, warnings })
     }
 
@@ -777,7 +843,7 @@ impl Store {
     ///
     /// 同じ木の中で回答が増えるたびに呼ばれるので、木の最初の回答の直前の状態（tree_prev）を控えておき、
     /// そこから計算し直す。これで 1 本の木は 1 回の復習として数えられる。
-    fn update_review(&self, q: &Question, today: NaiveDate) -> Result<ReviewState> {
+    fn update_review(&self, q: &Question, today: NaiveDate, reviewed_at: &str) -> Result<ReviewState> {
         let root = self.root_of(q)?;
         let tree = self.tree_of(root.id)?;
         let root_verdict = tree
@@ -824,7 +890,7 @@ impl Store {
                 next.interval_days,
                 next.ease,
                 next.streak,
-                now_iso(),
+                reviewed_at,
                 root.id,
                 serde_json::to_string(&base)?
             ],
@@ -871,6 +937,214 @@ impl Store {
         let root = self.root_of(&question)?;
         let tree = self.tree_of(root.id)?;
         Ok(QuestionDetail { question, term, session, attempts, explanation, tree, root_id: root.id })
+    }
+
+    pub fn get_attempt(&self, id: i64) -> Result<Attempt> {
+        self.conn
+            .query_row("SELECT * FROM attempts WHERE id = ?1", [id], attempt_from_row)
+            .optional()?
+            .ok_or_else(|| Error::NotFound(format!("回答 ID {id}")))
+    }
+
+    /// 判定を手で上書きする（F-14）。`verdict` が None なら Claude の元の判定に戻す。
+    ///
+    /// 直した問題の木が、その用語・形式でいちばん新しく復習した木なら、復習スケジュールも
+    /// 直した判定で計算し直す（復習した日はそのまま）。それより古い木は記録だけ直す。
+    pub fn override_verdict(&self, attempt_id: i64, verdict: Option<Verdict>) -> Result<Attempt> {
+        self.in_savepoint(|| {
+            let a = self.get_attempt(attempt_id)?;
+            let original = a.original_verdict.unwrap_or(a.verdict);
+            let target = verdict.unwrap_or(original);
+            if target == original {
+                self.conn.execute(
+                    "UPDATE attempts SET verdict = ?1, original_verdict = NULL, overridden_at = NULL WHERE id = ?2",
+                    params![original.as_str(), attempt_id],
+                )?;
+            } else {
+                self.conn.execute(
+                    "UPDATE attempts SET verdict = ?1, original_verdict = ?2, overridden_at = ?3 WHERE id = ?4",
+                    params![target.as_str(), original.as_str(), now_iso(), attempt_id],
+                )?;
+            }
+            let q = self.get_question(a.question_id)?;
+            let root = self.root_of(&q)?;
+            let current: Option<(Option<i64>, Option<String>)> = self
+                .conn
+                .query_row(
+                    "SELECT tree_root_id, last_reviewed_at FROM review_states WHERE term_id = ?1 AND format = ?2",
+                    params![root.term_id, root.format.as_str()],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            if let Some((Some(tree_root), Some(reviewed_at))) = current {
+                if tree_root == root.id {
+                    let day = DateTime::parse_from_rfc3339(&reviewed_at)
+                        .map(|d| d.with_timezone(&Local).date_naive())
+                        .map_err(|e| Error::Invalid(format!("復習日時 {reviewed_at}: {e}")))?;
+                    self.update_review(&q, day, &reviewed_at)?;
+                }
+            }
+            self.get_attempt(attempt_id)
+        })
+    }
+
+    /// 問題にメモを残す（空文字で消す）。メモは検索の対象になり、Claude も get_term_history で読める。
+    pub fn set_question_note(&self, question_id: i64, note: &str) -> Result<Question> {
+        let note = note.trim();
+        if note.chars().count() > MAX_NOTE_CHARS {
+            return Err(Error::Invalid(format!("メモは {MAX_NOTE_CHARS} 文字までです")));
+        }
+        let (value, at) = if note.is_empty() { (None, None) } else { (Some(note), Some(now_iso())) };
+        let n = self.conn.execute(
+            "UPDATE questions SET note = ?1, note_updated_at = ?2 WHERE id = ?3",
+            params![value, at, question_id],
+        )?;
+        if n == 0 {
+            return Err(Error::NotFound(format!("問題 ID {question_id}")));
+        }
+        self.get_question(question_id)
+    }
+
+    // ------------------------------------------------------------------ 学習統計
+
+    /// 学習統計（F-11）。`today` を含む直近 `days` 日を、`tz` の日付で集計する。
+    pub fn stats<Tz: TimeZone>(&self, days: i64, today: NaiveDate, tz: &Tz) -> Result<Stats> {
+        let days = days.clamp(1, 366);
+        let from = today - Days::new((days - 1) as u64);
+        let local_date = |s: &str| -> Option<NaiveDate> {
+            DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(tz).date_naive())
+        };
+        let in_range = |d: NaiveDate| d >= from && d <= today;
+        // UTC の文字列で粗く絞ってから、端末の日付で正確に絞る
+        let lower = format!("{}T00:00:00Z", date_str(from - Days::new(2)));
+
+        // 回答（判定・用語・タグ）
+        let mut stmt = self.conn.prepare(
+            "SELECT a.answered_at, a.verdict, a.question_id, q.term_id, t.tags
+             FROM attempts a JOIN questions q ON q.id = a.question_id JOIN terms t ON t.id = q.term_id
+             WHERE a.answered_at >= ?1",
+        )?;
+        let rows = stmt
+            .query_map([&lower], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut daily: Vec<DailyStat> = (0..days)
+            .map(|i| DailyStat { date: date_str(from + Days::new(i as u64)), counts: VerdictCounts::default() })
+            .collect();
+        let mut counts = VerdictCounts::default();
+        let mut by_tag: HashMap<String, VerdictCounts> = HashMap::new();
+        let mut questions = BTreeSet::new();
+        let mut terms = BTreeSet::new();
+        for (at, verdict, qid, tid, tags) in rows {
+            let Some(d) = local_date(&at).filter(|d| in_range(*d)) else { continue };
+            let v = Verdict::parse(&verdict)?;
+            daily[(d - from).num_days() as usize].counts.add(v);
+            counts.add(v);
+            questions.insert(qid);
+            terms.insert(tid);
+            let tags = json_vec(tags);
+            if tags.is_empty() {
+                by_tag.entry(UNTAGGED.to_string()).or_default().add(v);
+            }
+            for t in tags {
+                by_tag.entry(t).or_default().add(v);
+            }
+        }
+        let mut by_tag: Vec<TagAccuracy> = by_tag
+            .into_iter()
+            .map(|(tag, counts)| TagAccuracy { accuracy: counts.accuracy(), tag, counts })
+            .collect();
+        by_tag.sort_by(|a, b| b.counts.total().cmp(&a.counts.total()).then_with(|| a.tag.cmp(&b.tag)));
+
+        // 学習した日（連続日数は期間の外も数える）
+        let mut stmt = self.conn.prepare("SELECT answered_at FROM attempts")?;
+        let all_days: BTreeSet<NaiveDate> = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .filter_map(|s| local_date(&s))
+            .collect();
+        let active_days = all_days.iter().filter(|d| in_range(**d)).count() as i64;
+        let mut cursor = if all_days.contains(&today) { Some(today) } else { today.pred_opt() };
+        let mut streak_days = 0;
+        while let Some(d) = cursor.filter(|d| all_days.contains(d)) {
+            streak_days += 1;
+            cursor = d.pred_opt();
+        }
+
+        // 深掘り（期間中に始めた「用語→意味」の木）
+        let mut stmt = self.conn.prepare(
+            "SELECT q.id, q.parent_id, q.depth, q.format, q.created_at,
+                (SELECT a.verdict FROM attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1)
+             FROM questions q ORDER BY q.id",
+        )?;
+        let qrows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        // 根ごとに（出題された最も深い段, 正解できた最も深い段）
+        let mut root_of: HashMap<i64, i64> = HashMap::new();
+        let mut trees: HashMap<i64, (i64, Option<i64>)> = HashMap::new();
+        for (id, parent, depth, format, created_at, verdict) in qrows {
+            let root = parent.and_then(|p| root_of.get(&p).copied()).unwrap_or(id);
+            root_of.insert(id, root);
+            if parent.is_none() {
+                let counted = format == Format::TermToMeaning.as_str()
+                    && local_date(&created_at).is_some_and(in_range);
+                if !counted {
+                    continue;
+                }
+                trees.insert(id, (0, None));
+            }
+            if let Some(t) = trees.get_mut(&root) {
+                t.0 = t.0.max(depth);
+                if verdict.as_deref() == Some(Verdict::Correct.as_str()) {
+                    t.1 = Some(t.1.map_or(depth, |c| c.max(depth)));
+                }
+            }
+        }
+        let deep_trees = trees.len() as i64;
+        let mut correct_level_hist = vec![0; HIST_MAX_LEVEL + 1];
+        let (mut reached_sum, mut correct_sum) = (0i64, 0i64);
+        for (reached, correct) in trees.values() {
+            let levels = correct.map_or(0, |c| c + 1);
+            reached_sum += reached + 1;
+            correct_sum += levels;
+            correct_level_hist[(levels as usize).min(HIST_MAX_LEVEL)] += 1;
+        }
+        let avg = |sum: i64| (deep_trees > 0).then(|| sum as f64 / deep_trees as f64);
+
+        Ok(Stats {
+            days,
+            from: date_str(from),
+            to: date_str(today),
+            accuracy: counts.accuracy(),
+            counts,
+            question_count: questions.len() as i64,
+            term_count: terms.len() as i64,
+            active_days,
+            streak_days,
+            daily,
+            by_tag,
+            deep_trees,
+            avg_reached_levels: avg(reached_sum),
+            avg_correct_levels: avg(correct_sum),
+            correct_level_hist,
+        })
     }
 
     // ------------------------------------------------------------------ 用語カード・履歴
@@ -921,7 +1195,8 @@ impl Store {
         let term = self.get_term(term_id)?;
         let mut stmt = self.conn.prepare(
             "SELECT q.*, s.theme,
-                a.answer AS latest_answer, a.verdict AS latest_verdict, a.reason AS latest_reason
+                a.answer AS latest_answer, a.verdict AS latest_verdict, a.reason AS latest_reason,
+                a.original_verdict AS original_verdict
              FROM questions q
              JOIN sessions s ON s.id = q.session_id
              LEFT JOIN attempts a ON a.id = (SELECT max(id) FROM attempts WHERE question_id = q.id)
@@ -942,11 +1217,68 @@ impl Store {
                     latest_answer: r.get("latest_answer")?,
                     latest_verdict: opt_verdict(r.get("latest_verdict")?)?,
                     latest_reason: r.get("latest_reason")?,
+                    original_verdict: opt_verdict(r.get("original_verdict")?)?,
+                    note: q.note,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let card = self.term_card(term_id)?;
         Ok(TermHistory { term, counts: card.counts, review_states: card.review_states, entries })
+    }
+
+    /// 用語 1 つ分の書き出しデータ（F-13）。
+    pub fn term_export(&self, term_id: i64) -> Result<TermExport> {
+        let term = self.get_term(term_id)?;
+        let mut stmt = self.conn.prepare(
+            "SELECT q.*, s.theme FROM questions q JOIN sessions s ON s.id = q.session_id
+             WHERE q.term_id = ?1 ORDER BY q.created_at, q.id",
+        )?;
+        let rows = stmt
+            .query_map([term_id], |r| Ok((question_from_row(r)?, r.get::<_, String>("theme")?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut stmt = self.conn.prepare(
+            "SELECT a.* FROM attempts a JOIN questions q ON q.id = a.question_id WHERE q.term_id = ?1 ORDER BY a.id",
+        )?;
+        let mut attempts: HashMap<i64, Vec<Attempt>> = HashMap::new();
+        for a in stmt.query_map([term_id], attempt_from_row)? {
+            let a = a?;
+            attempts.entry(a.question_id).or_default().push(a);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT e.* FROM explanations e JOIN questions q ON q.id = e.question_id
+             WHERE q.term_id = ?1 AND e.id = (SELECT max(id) FROM explanations WHERE question_id = q.id)",
+        )?;
+        let mut explanations: HashMap<i64, Explanation> = HashMap::new();
+        for e in stmt.query_map([term_id], explanation_from_row)? {
+            let e = e?;
+            explanations.insert(e.question_id, e);
+        }
+        let mut counts = VerdictCounts::default();
+        let questions: Vec<ExportQuestion> = rows
+            .into_iter()
+            .map(|(question, session_theme)| {
+                let attempts = attempts.remove(&question.id).unwrap_or_default();
+                if let Some(a) = attempts.last() {
+                    counts.add(a.verdict);
+                }
+                ExportQuestion { explanation: explanations.remove(&question.id), session_theme, attempts, question }
+            })
+            .collect();
+        Ok(TermExport {
+            accuracy: counts.accuracy(),
+            counts,
+            review_states: self.review_states_of(term_id)?,
+            adjustments: self.diagram_adjustments(term_id)?,
+            questions,
+            term,
+        })
+    }
+
+    /// 全用語の書き出しデータ（見出し語順）。
+    pub fn export_all(&self) -> Result<Vec<TermExport>> {
+        let mut stmt = self.conn.prepare("SELECT id FROM terms ORDER BY headword COLLATE NOCASE")?;
+        let ids = stmt.query_map([], |r| r.get::<_, i64>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter().map(|id| self.term_export(id)).collect()
     }
 
     // ------------------------------------------------------------------ 復習・苦手
@@ -1205,11 +1537,12 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT s.kind, s.ref_id, s.term_id, s.body, t.headword,
                 CASE s.kind WHEN 'question' THEN s.ref_id
+                            WHEN 'note' THEN s.ref_id
                             WHEN 'explanation' THEN (SELECT question_id FROM explanations WHERE id = s.ref_id)
                             ELSE NULL END AS question_id
              FROM search_index s JOIN terms t ON t.id = s.term_id
              WHERE s.body LIKE ?1 ESCAPE '\\'
-             ORDER BY CASE s.kind WHEN 'term' THEN 0 WHEN 'question' THEN 1 ELSE 2 END, s.rowid DESC
+             ORDER BY CASE s.kind WHEN 'term' THEN 0 WHEN 'question' THEN 1 WHEN 'note' THEN 2 ELSE 3 END, s.rowid DESC
              LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![pattern, limit.clamp(1, 500)], |r| {

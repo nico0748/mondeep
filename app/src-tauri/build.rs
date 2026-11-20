@@ -20,6 +20,16 @@ const COMMANDS: &[&str] = &[
     "install_mcp_config",
     "open_external",
     "export_file",
+    "export_files",
+    "backup_now",
+    "override_verdict",
+    "set_question_note",
+    "tag_stats",
+    "rename_tag",
+    "remove_tag",
+    "stats",
+    "term_export",
+    "export_all",
 ];
 
 fn main() {
