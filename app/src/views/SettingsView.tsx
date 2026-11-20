@@ -2,6 +2,44 @@ import { useState } from "react";
 import { api } from "../api";
 import { useLoad } from "../hooks";
 import { ErrorNote } from "../components/bits";
+import { buildExport, OBSIDIAN_FOLDER } from "../obsidian";
+
+/** 解説の書き出し（Obsidian 用 Markdown）と、DB 全体のバックアップ（F-13）。 */
+function DataExport() {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const run = async (f: () => Promise<string>) => {
+    setBusy(true);
+    try {
+      setNote(await f());
+    } catch (e) {
+      setNote(`失敗しました: ${e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const exportAll = () =>
+    run(async () => {
+      const list = await api.exportAll();
+      if (!list.length) return "書き出す用語がまだありません。";
+      const files = buildExport(list);
+      const dir = await api.exportFiles(OBSIDIAN_FOLDER, files);
+      return `${list.length} 語を ${dir} に書き出しました（目次ノート「Mondeep 用語一覧」つき）。`;
+    });
+  const backup = () => run(async () => `${await api.backupNow()} に保存しました。`);
+  return (
+    <div className="block">
+      <h2>書き出しとバックアップ</h2>
+      <p>解説と出題の記録を、用語ごとの Markdown ノートとして書き出します。図は SVG にして埋め込み、出典の Obsidian ノートはリンクになります。書き出したフォルダを Vault にコピーすると、Obsidian で開けます。</p>
+      <div className="actions">
+        <button onClick={exportAll} disabled={busy}>全用語を Markdown で書き出す</button>
+        <button onClick={backup} disabled={busy}>DB を今すぐバックアップ</button>
+      </div>
+      {note && <p className="note export-note" role="status">{note}</p>}
+      <p className="hint">保存先はダウンロードフォルダの Mondeep フォルダです。もう一度書き出すと、同じ名前のノートは上書きされます。</p>
+    </div>
+  );
+}
 
 export function SettingsView() {
   const { data, error } = useLoad(() => api.appInfo(), []);
@@ -50,6 +88,7 @@ export function SettingsView() {
         {data.backup_error && <p className="error">起動時のバックアップに失敗しました: {data.backup_error}</p>}
         <p className="hint">学習記録はこの端末の外に送られません。アプリと MCP サーバーは外部と通信しません。</p>
       </div>
+      <DataExport />
       <p className="meta">Mondeep {data.version}</p>
     </section>
   );

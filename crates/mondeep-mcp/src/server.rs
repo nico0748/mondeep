@@ -166,7 +166,7 @@ impl MondeepServer {
         ok(json!({ "today": today.to_string(), "count": items.len(), "items": items }))
     }
 
-    #[tool(description = "用語の過去の出題・回答・判定を返す。同じ問いの繰り返しを避けるため、出題前に確かめる。")]
+    #[tool(description = "用語の過去の出題・回答・判定を返す。同じ問いの繰り返しを避けるため、出題前に確かめる。Nico さんがアプリで直した判定（original_verdict が元の判定）とメモ（note）も含む。")]
     pub async fn get_term_history(&self, Parameters(p): Parameters<TermHistoryParams>) -> Result<CallToolResult, McpError> {
         let store = self.store();
         let term_id = match (p.term_id, p.term.as_deref()) {

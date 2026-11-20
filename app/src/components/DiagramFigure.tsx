@@ -3,13 +3,7 @@ import { KIND_LABEL, renderDiagram, toSvgString, type Offsets } from "../zukai";
 import { api } from "../api";
 import { useLoad } from "../hooks";
 import { svgToReact } from "./SvgView";
-
-function base64FromString(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = "";
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin);
-}
+import { base64FromString } from "../encode";
 
 async function svgToPngBase64(svg: string, w: number, h: number, scale = 2): Promise<string> {
   const img = new Image();

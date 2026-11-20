@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-question-note"
+description = "Enables the set_question_note command without any pre-configured scope."
+commands.allow = ["set_question_note"]
+
+[[permission]]
+identifier = "deny-set-question-note"
+description = "Denies the set_question_note command without any pre-configured scope."
+commands.deny = ["set_question_note"]

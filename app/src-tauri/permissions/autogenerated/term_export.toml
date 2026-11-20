@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-term-export"
+description = "Enables the term_export command without any pre-configured scope."
+commands.allow = ["term_export"]
+
+[[permission]]
+identifier = "deny-term-export"
+description = "Denies the term_export command without any pre-configured scope."
+commands.deny = ["term_export"]

@@ -1,6 +1,6 @@
 // Tauri コマンドの呼び出し。画面から呼べる操作は src-tauri/capabilities/default.json で許可したものだけ。
 import { invoke } from "@tauri-apps/api/core";
-import type { AppInfo, DiagramAdjustment, HistoryFilter, HistoryGroup, QuestionDetail, ReviewItem, SearchHit, Term, TermCard, TermListItem, WeakTerm } from "./types";
+import type { AppInfo, Attempt, DiagramAdjustment, ExportFile, HistoryFilter, HistoryGroup, Question, QuestionDetail, ReviewItem, SearchHit, Stats, TagStat, Term, TermCard, TermExport, TermListItem, Verdict, WeakTerm } from "./types";
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
@@ -23,4 +23,14 @@ export const api = {
   installMcpConfig: () => invoke<string>("install_mcp_config"),
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   exportFile: (fileName: string, dataBase64: string) => invoke<string>("export_file", { fileName, dataBase64 }),
+  exportFiles: (folder: string, files: ExportFile[]) => invoke<string>("export_files", { folder, files }),
+  backupNow: () => invoke<string>("backup_now"),
+  overrideVerdict: (attemptId: number, verdict: Verdict | null) => invoke<Attempt>("override_verdict", { attemptId, verdict }),
+  setQuestionNote: (questionId: number, note: string) => invoke<Question>("set_question_note", { questionId, note }),
+  tagStats: () => invoke<TagStat[]>("tag_stats"),
+  renameTag: (old: string, newName: string) => invoke<number>("rename_tag", { old, new: newName }),
+  removeTag: (tag: string) => invoke<number>("remove_tag", { tag }),
+  stats: (days: number) => invoke<Stats>("stats", { days }),
+  termExport: (id: number) => invoke<TermExport>("term_export", { id }),
+  exportAll: () => invoke<TermExport[]>("export_all"),
 };

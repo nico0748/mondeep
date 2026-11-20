@@ -162,6 +162,8 @@ pub struct Question {
     pub parent_id: Option<i64>,
     pub depth: i64,
     pub created_at: String,
+    /// Nico さんのメモ（アプリで追記、Claude も get_term_history で読める）
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -172,6 +174,9 @@ pub struct Attempt {
     pub verdict: Verdict,
     pub reason: String,
     pub answered_at: String,
+    /// 判定を手で上書きしたときの、Claude の元の判定
+    pub original_verdict: Option<Verdict>,
+    pub overridden_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -306,6 +311,79 @@ pub struct DiagramAdjustment {
     pub updated_at: String,
 }
 
+/// 書き出し用の問題 1 件（回答と、最新の解説つき）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportQuestion {
+    #[serde(flatten)]
+    pub question: Question,
+    pub session_theme: String,
+    pub attempts: Vec<Attempt>,
+    pub explanation: Option<Explanation>,
+}
+
+/// 用語 1 つ分の書き出しデータ（F-13、Obsidian 用 Markdown の元）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TermExport {
+    pub term: Term,
+    pub counts: VerdictCounts,
+    pub accuracy: Option<f64>,
+    pub review_states: Vec<ReviewState>,
+    /// 古い順
+    pub questions: Vec<ExportQuestion>,
+    /// 図の微調整（書き出す SVG にも反映する）
+    pub adjustments: Vec<DiagramAdjustment>,
+}
+
+/// タグごとの用語数。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TagStat {
+    pub tag: String,
+    pub term_count: i64,
+}
+
+/// 学習統計の日別の 1 行（端末のタイムゾーンの日付）。その日に答えた回答の判定数。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DailyStat {
+    pub date: String,
+    pub counts: VerdictCounts,
+}
+
+/// 分野（タグ）別の正答率。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TagAccuracy {
+    pub tag: String,
+    pub counts: VerdictCounts,
+    pub accuracy: Option<f64>,
+}
+
+/// 学習統計（F-11）。期間は今日を含む直近 `days` 日。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Stats {
+    pub days: i64,
+    pub from: String,
+    pub to: String,
+    /// 期間中の回答の判定数
+    pub counts: VerdictCounts,
+    pub accuracy: Option<f64>,
+    /// 期間中に答えた問題・用語の数
+    pub question_count: i64,
+    pub term_count: i64,
+    /// 学習した日数と、今日（または昨日）まで続いている連続日数
+    pub active_days: i64,
+    pub streak_days: i64,
+    pub daily: Vec<DailyStat>,
+    /// タグなしの用語は「（タグなし）」にまとめる
+    pub by_tag: Vec<TagAccuracy>,
+    /// 期間中に始めた「用語→意味」の深掘りの木の数
+    pub deep_trees: i64,
+    /// 出題された段数の平均（最初の問いだけなら 1 段）
+    pub avg_reached_levels: Option<f64>,
+    /// 正解できた段数の平均（最も深く正解できた段 + 1、正解がなければ 0）
+    pub avg_correct_levels: Option<f64>,
+    /// 正解できた段数ごとの木の数（添字が段数、最後の要素は「それ以上」をまとめる）
+    pub correct_level_hist: Vec<i64>,
+}
+
 /// 苦手用語の 1 件。
 #[derive(Debug, Clone, Serialize)]
 pub struct WeakTerm {
@@ -324,7 +402,7 @@ pub struct WeakTerm {
 /// 検索結果の 1 件。
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
-    /// term / question / explanation
+    /// term / question / note / explanation
     pub kind: String,
     pub term_id: i64,
     pub headword: String,
