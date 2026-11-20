@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/mondeep-core", "crates/mondeep-mcp", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+mondeep-core = { path = "crates/mondeep-core" }
+rusqlite = { version = "0.43", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+thiserror = "2"
+anyhow = "1"

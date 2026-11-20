@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-term-tags"
+description = "Enables the set_term_tags command without any pre-configured scope."
+commands.allow = ["set_term_tags"]
+
+[[permission]]
+identifier = "deny-set-term-tags"
+description = "Denies the set_term_tags command without any pre-configured scope."
+commands.deny = ["set_term_tags"]

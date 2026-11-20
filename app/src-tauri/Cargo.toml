@@ -1,0 +1,27 @@
+[package]
+name = "mondeep-app"
+description = "Mondeep 学習アプリ（記録・復習・解説を読む場所）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mondeep_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "mondeep"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+mondeep-core.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+dirs = "6"
+base64 = "0.22"

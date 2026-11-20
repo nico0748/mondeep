@@ -1,0 +1,22 @@
+// Tauri コマンドの呼び出し。画面から呼べる操作は src-tauri/capabilities/default.json で許可したものだけ。
+import { invoke } from "@tauri-apps/api/core";
+import type { AppInfo, HistoryFilter, HistoryGroup, QuestionDetail, ReviewItem, SearchHit, Term, TermCard, TermListItem, WeakTerm } from "./types";
+
+export const api = {
+  appInfo: () => invoke<AppInfo>("app_info"),
+  dataVersion: () => invoke<number>("data_version"),
+  history: (filter: HistoryFilter) => invoke<HistoryGroup[]>("history", { filter }),
+  questionDetail: (id: number) => invoke<QuestionDetail>("question_detail", { id }),
+  listTerms: (tag?: string, query?: string) => invoke<TermListItem[]>("list_terms", { tag: tag || null, query: query || null }),
+  termCard: (id: number) => invoke<TermCard>("term_card", { id }),
+  allTags: () => invoke<string[]>("all_tags"),
+  reviewQueue: () => invoke<ReviewItem[]>("review_queue"),
+  weakTerms: () => invoke<WeakTerm[]>("weak_terms"),
+  search: (keyword: string) => invoke<SearchHit[]>("search", { keyword }),
+  setNeedsReview: (termId: number, on: boolean) => invoke<Term>("set_needs_review", { termId, on }),
+  setTermTags: (termId: number, tags: string[]) => invoke<Term>("set_term_tags", { termId, tags }),
+  deleteSession: (id: number) => invoke<void>("delete_session", { id }),
+  installMcpConfig: () => invoke<string>("install_mcp_config"),
+  openExternal: (url: string) => invoke<void>("open_external", { url }),
+  exportFile: (fileName: string, dataBase64: string) => invoke<string>("export_file", { fileName, dataBase64 }),
+};
