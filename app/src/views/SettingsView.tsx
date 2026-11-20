@@ -30,7 +30,7 @@ export function SettingsView() {
         <h2>Claude Desktop への登録</h2>
         <p>Claude Desktop が Mondeep の MCP サーバーを起動し、会話の記録をこのアプリの DB に保存します。</p>
         {!data.mcp_binary_exists && (
-          <p className="error">MCP サーバーの実行ファイルが見つかりません: {data.mcp_binary}。<code>cargo build --release -p mondeep-mcp</code> でビルドし、アプリと同じフォルダに置いてください。</p>
+          <p className="error">MCP サーバーの実行ファイルが見つかりません: {data.mcp_binary}。配布用のビルド（<code>npm run bundle</code>）では自動で同梱されます。開発中は <code>cargo build -p mondeep-mcp</code> でビルドしてください。</p>
         )}
         <pre className="code">{data.mcp_config_snippet}</pre>
         <div className="actions">
@@ -38,6 +38,7 @@ export function SettingsView() {
           <button onClick={install} disabled={!data.claude_config_path}>設定ファイルに追記</button>
         </div>
         {note && <p className="note">{note}</p>}
+        <p className="hint">MCP サーバーはアプリに同梱されています。アプリを別の場所に移したときは、もう一度登録してください。</p>
       </div>
       <div className="block">
         <h2>データの保存場所</h2>

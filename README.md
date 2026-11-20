@@ -31,10 +31,15 @@ DB は OS 標準のアプリデータフォルダ（macOS: `~/Library/Applicatio
 前提: Rust（stable）、Node.js 22、Tauri の前提ライブラリ（macOS は Xcode Command Line Tools）。
 
 ```sh
-cd app && npm install && cd ..
-cargo build --release -p mondeep-mcp          # MCP サーバー
-cd app && npm run tauri build                 # アプリ本体（開発中は npm run tauri dev）
+cd app && npm install
+npm run bundle        # MCP サーバーを同梱した配布物（macOS は .app と .dmg）を target/release/bundle に作る
 ```
+
+`npm run bundle` は MCP サーバーをリリースビルドして sidecar としてアプリに入れます（`scripts/prepare-sidecar.mjs`）。
+開発中は `cargo build -p mondeep-mcp` のあと `npm run tauri dev` で起動します（`target/debug` に並んだ MCP サーバーを使います）。
+
+macOS 版は GitHub Actions の「Bundle」ワークフローでも作られ、実行結果の Artifacts から .dmg を取れます。
+署名は ad-hoc なので、初回は Finder で右クリック →「開く」で起動してください（Apple の公証は未対応）。
 
 ### Claude Desktop に登録する
 
@@ -54,7 +59,7 @@ cd app && npm run tauri build                 # アプリ本体（開発中は n
 
 `--knowledge-path`（ナレッジ DB のフォルダ）と `--obsidian-vault`（Vault 名）は省略できます。指定すると出題ガイドに書かれ、Claude が素材の場所に迷わなくなります。
 
-アプリ画面は MCP サーバーの実行ファイルを、アプリと同じフォルダにあるものとして扱います。
+MCP サーバーはアプリに同梱され、アプリ本体と同じフォルダ（macOS: `Mondeep.app/Contents/MacOS/mondeep-mcp`）に置かれます。アプリを移動したら登録し直してください。
 
 ### 学習の流れ
 
@@ -82,6 +87,8 @@ cd app && npm run tauri build                 # アプリ本体（開発中は n
 Mermaid は使わず、Claude は「何を描くか」だけを JSON で渡します。MCP サーバーが保存前にスキーマと規約を検査し（ラベルのない矢印、要素が 9 個超、文字のはみ出し、同じマスへの重ね置き、線の交差は警告）、違反は理由つきで Claude に返します。アプリは検査済みのデータから SVG を組み立てて描き、AI が書いた SVG・HTML は表示しません。
 
 対応している図: 概念図・シーケンス図・状態遷移図・比較表。色は 青＝主役、オレンジ＝外部、赤＝エラー系、ピンク＝核心の強調で、凡例は自動で付きます。図はクリックで拡大でき、SVG / PNG で書き出せます（ダウンロードフォルダの `Mondeep/` に保存）。
+
+概念図と状態遷移図は、拡大画面の「位置を調整」で部品をドラッグして微調整できます。微調整は「用語 × 図の種類 × 部品 ID」ごとに保存されるので、Claude が同じ用語の図を描き直しても、同じ ID の部品には引き継がれます。「自動配置に戻す」で消せます。
 
 | シーケンス図 | 状態遷移図 |
 | --- | --- |

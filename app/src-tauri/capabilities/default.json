@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウから呼べる操作。学習データの閲覧・要復習の印・削除・設定の追記・外部リンクを開くことだけを許可する。",
-  "windows": ["main"],
+  "description": "メインウィンドウから呼べる操作。学習データの閲覧・要復習の印・タグ・図の位置の微調整・削除・設定の追記・外部リンクを開くことだけを許可する。",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "allow-app-info",
     "allow-data-version",
@@ -17,6 +19,9 @@
     "allow-search",
     "allow-set-needs-review",
     "allow-set-term-tags",
+    "allow-diagram-adjustments",
+    "allow-set-diagram-adjustment",
+    "allow-reset-diagram-adjustments",
     "allow-delete-session",
     "allow-install-mcp-config",
     "allow-open-external",

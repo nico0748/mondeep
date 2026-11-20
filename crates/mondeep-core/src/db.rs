@@ -124,6 +124,19 @@ pub const MIGRATIONS: &[&str] = &[
         DELETE FROM search_index WHERE kind = 'explanation' AND ref_id = old.id;
     END;
     "#,
+    // v2: 図の位置の微調整（部品ごと）。用語 × 図の種類 × 部品 ID で持つので、
+    // Claude が同じ用語の図を描き直しても、同じ ID の部品には微調整が引き継がれる
+    r#"
+    CREATE TABLE diagram_adjustments (
+        term_id     INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+        kind        TEXT NOT NULL CHECK (kind IN ('concept', 'state')),
+        element_id  TEXT NOT NULL,
+        dx          REAL NOT NULL,
+        dy          REAL NOT NULL,
+        updated_at  TEXT NOT NULL,
+        PRIMARY KEY (term_id, kind, element_id)
+    );
+    "#,
 ];
 
 /// DB を開き、WAL・外部キーを有効にしてマイグレーションを流す。親フォルダがなければ作る。
@@ -209,6 +222,29 @@ mod tests {
         drop(c);
         let c = open(&p).unwrap();
         assert_eq!(schema_version(&c).unwrap(), MIGRATIONS.len() as i64);
+    }
+
+    #[test]
+    fn upgrades_old_database_keeping_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("old.db");
+        {
+            // v1 のままの DB を作る
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(MIGRATIONS[0]).unwrap();
+            c.pragma_update(None, "user_version", 1).unwrap();
+            c.execute(
+                "INSERT INTO sessions(format, theme, started_at) VALUES ('mixed', '古いデータ', '2026-11-20T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+        let c = open(&p).unwrap();
+        assert_eq!(schema_version(&c).unwrap(), MIGRATIONS.len() as i64);
+        let theme: String = c.query_row("SELECT theme FROM sessions", [], |r| r.get(0)).unwrap();
+        assert_eq!(theme, "古いデータ");
+        let n: i64 = c.query_row("SELECT count(*) FROM diagram_adjustments", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

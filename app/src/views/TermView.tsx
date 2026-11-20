@@ -61,7 +61,7 @@ export function TermView({ id }: { id: number }) {
           <h2>最新の解説</h2>
           {latest_explanation.body_md && <Markdown source={latest_explanation.body_md} />}
           {latest_explanation.diagrams.map((d, i) => (
-            <DiagramFigure key={i} data={d} name={`mondeep-${term.headword}-${i + 1}`} />
+            <DiagramFigure key={i} data={d} termId={term.id} name={`mondeep-${term.headword}-${i + 1}`} />
           ))}
         </article>
       )}

@@ -104,6 +104,9 @@ pub struct HistoryGroup {
     pub questions: Vec<QuestionSummary>,
 }
 
+/// 微調整で動かせる最大量（px）。
+const MAX_ADJUST: f64 = 2000.0;
+
 /// review_states の 1 行（due_date, interval_days, ease, streak, tree_root_id, tree_prev）。
 type StoredReview = (String, i64, f64, i64, Option<i64>, Option<String>);
 
@@ -1131,6 +1134,62 @@ impl Store {
         out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         out.truncate(limit.clamp(1, 200) as usize);
         Ok(out)
+    }
+
+    // ------------------------------------------------------------------ 図の微調整
+
+    /// 用語の図の微調整をすべて返す（アプリが描画時に重ねる）。
+    pub fn diagram_adjustments(&self, term_id: i64) -> Result<Vec<DiagramAdjustment>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT * FROM diagram_adjustments WHERE term_id = ?1 ORDER BY kind, element_id",
+        )?;
+        let rows = stmt.query_map([term_id], |r| {
+            Ok(DiagramAdjustment {
+                term_id: r.get("term_id")?,
+                kind: r.get("kind")?,
+                element_id: r.get("element_id")?,
+                dx: r.get("dx")?,
+                dy: r.get("dy")?,
+                updated_at: r.get("updated_at")?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// 部品 1 つの微調整を保存する。dx・dy がどちらも 0 なら消す。
+    pub fn set_diagram_adjustment(&self, term_id: i64, kind: &str, element_id: &str, dx: f64, dy: f64) -> Result<()> {
+        if !matches!(kind, "concept" | "state") {
+            return Err(Error::Invalid(format!("位置を調整できるのは概念図と状態遷移図だけです（{kind}）")));
+        }
+        if element_id.trim().is_empty() || element_id.len() > 200 {
+            return Err(Error::Invalid("部品 ID が不正です".into()));
+        }
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err(Error::Invalid("移動量が不正です".into()));
+        }
+        self.get_term(term_id)?;
+        let (dx, dy) = (dx.clamp(-MAX_ADJUST, MAX_ADJUST).round(), dy.clamp(-MAX_ADJUST, MAX_ADJUST).round());
+        if dx == 0.0 && dy == 0.0 {
+            self.conn.execute(
+                "DELETE FROM diagram_adjustments WHERE term_id = ?1 AND kind = ?2 AND element_id = ?3",
+                params![term_id, kind, element_id],
+            )?;
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT INTO diagram_adjustments(term_id, kind, element_id, dx, dy, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(term_id, kind, element_id) DO UPDATE SET dx = excluded.dx, dy = excluded.dy, updated_at = excluded.updated_at",
+            params![term_id, kind, element_id, dx, dy, now_iso()],
+        )?;
+        Ok(())
+    }
+
+    /// 図の種類ごとに微調整を消して、自動配置に戻す。
+    pub fn reset_diagram_adjustments(&self, term_id: i64, kind: &str) -> Result<usize> {
+        Ok(self.conn.execute(
+            "DELETE FROM diagram_adjustments WHERE term_id = ?1 AND kind = ?2",
+            params![term_id, kind],
+        )?)
     }
 
     // ------------------------------------------------------------------ 検索

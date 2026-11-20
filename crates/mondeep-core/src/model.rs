@@ -294,6 +294,18 @@ pub struct ReviewItem {
     pub summary: String,
 }
 
+/// 図の部品の位置の微調整（自動配置からのずれ、px）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DiagramAdjustment {
+    pub term_id: i64,
+    /// concept / state（自動配置のシーケンス図・比較表は動かさない）
+    pub kind: String,
+    pub element_id: String,
+    pub dx: f64,
+    pub dy: f64,
+    pub updated_at: String,
+}
+
 /// 苦手用語の 1 件。
 #[derive(Debug, Clone, Serialize)]
 pub struct WeakTerm {

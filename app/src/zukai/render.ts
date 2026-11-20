@@ -19,6 +19,22 @@ export interface Rendered {
   svg: SvgNode;
   width: number;
   height: number;
+  /** ドラッグで位置を微調整できる図か（概念図・状態遷移図） */
+  adjustable: boolean;
+}
+
+/** 部品ごとの位置の微調整（自動配置からのずれ、px）。 */
+export type Offsets = Record<string, { dx: number; dy: number }>;
+
+export interface RenderOptions {
+  offsets?: Offsets;
+}
+
+/** 微調整を足し、図の外にはみ出さないよう下限で止める。 */
+function adjust(p: Pt, id: string, offsets: Offsets | undefined, minX: number, minY: number): Pt {
+  const o = offsets?.[id];
+  if (!o) return p;
+  return { x: Math.max(minX, p.x + o.dx), y: Math.max(minY, p.y + o.dy) };
 }
 
 let uid = 0;
@@ -37,6 +53,7 @@ function frame(d: { title?: string }, contentW: number, contentH: number, body: 
   return {
     width,
     height,
+    adjustable: false,
     svg: el("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${width} ${height}`, width, height, "font-family": FONT.body, role: "img" }, children),
   };
 }
@@ -71,19 +88,26 @@ export function gridCenter(n: { row: number; col: number; x?: number; y?: number
  * 矢印ラベルの置き場所。箱と箱のすき間に収まるなら線の中央、収まらなければ箱の外
  * （横向きの線は箱の上、逆向きの 2 本目は下。縦向きの線は右）に置いて、箱に重ならないようにする。
  */
-function placeLabel(n: number, label: string, a: Pt, b: Pt, p1: Pt, p2: Pt, boxW: number, boxH: number, second: boolean, highlight: boolean): SvgNode {
+function placeLabel(n: number, label: string, a: Pt, b: Pt, p1: Pt, p2: Pt, boxW: number, boxH: number, highlight: boolean): SvgNode {
   const size = edgeLabelSize(label);
   const mx = (p1.x + p2.x) / 2;
   const my = (p1.y + p2.y) / 2;
   const dx = Math.abs(b.x - a.x);
   const dy = Math.abs(b.y - a.y);
+  // 逆向きの線と並べてずらしたときは、ずらした側にラベルを置く（2 本のラベルが重ならない）
+  const below = my > (a.y + b.y) / 2 + 1;
+  const left = mx < (a.x + b.x) / 2 - 1;
   if (dx >= dy) {
-    if (dx - boxW - 12 >= size.w || dy > boxH) return edgeLabel(n, label, mx, my + (second ? 4 : -4), highlight, { anchor: second ? "top" : "bottom" });
-    return second
+    if (dx - boxW - 12 >= size.w || dy > boxH) return edgeLabel(n, label, mx, my + (below ? 4 : -4), highlight, { anchor: below ? "top" : "bottom" });
+    return below
       ? edgeLabel(n, label, mx, Math.max(a.y, b.y) + boxH / 2 + 6, highlight, { anchor: "top" })
       : edgeLabel(n, label, mx, Math.min(a.y, b.y) - boxH / 2 - 6, highlight, { anchor: "bottom" });
   }
-  if (dy - boxH - 12 >= size.h) return edgeLabel(n, label, mx + (second ? -6 : 6), my, highlight, { anchor: second ? "center" : "left" });
+  if (dy - boxH - 12 >= size.h) {
+    return left
+      ? edgeLabel(n, label, mx - 6 - size.w / 2, my, highlight)
+      : edgeLabel(n, label, mx + 6, my, highlight, { anchor: "left" });
+  }
   return edgeLabel(n, label, Math.max(a.x, b.x) + boxW / 2 + 6, my, highlight, { anchor: "left" });
 }
 
@@ -103,12 +127,12 @@ function bounds(points: Pt[], padX: number, padY: number) {
 
 // ------------------------------------------------------------- 概念図
 
-export function renderConcept(d: ConceptDiagram): Rendered {
+export function renderConcept(d: ConceptDiagram, opts: RenderOptions = {}): Rendered {
   const prefix = `zk${++uid}`;
   // 箱の上に置くラベルのぶん、全体を少し下げる（平行移動なので交差の判定は Rust 側と変わらない）
   const pos = new Map(d.nodes.map((n) => {
     const c = gridCenter(n);
-    return [n.id, { x: c.x, y: c.y + LABEL_ROOM }];
+    return [n.id, adjust({ x: c.x, y: c.y + LABEL_ROOM }, n.id, opts.offsets, BOX_W / 2 + 4, BOX_H / 2 + LABEL_ROOM)];
   }));
   const body: SvgNode[] = [];
 
@@ -141,8 +165,7 @@ export function renderConcept(d: ConceptDiagram): Rendered {
       x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, stroke: color, "stroke-width": e.highlight ? 2.4 : 1.6,
       "stroke-dasharray": e.dashed ? "6 4" : undefined, "marker-end": `url(#${prefix}-${e.highlight ? "arrow-hl" : "arrow"})`,
     }));
-    const second = edges.findIndex((o) => o.from === e.to && o.to === e.from) > -1 && edges.findIndex((o) => o.from === e.to && o.to === e.from) < i;
-    labels.push(placeLabel(i + 1, e.label, a, b, p1, p2, BOX_W, BOX_H, second, !!e.highlight));
+    labels.push(placeLabel(i + 1, e.label, a, b, p1, p2, BOX_W, BOX_H, !!e.highlight));
   });
 
   for (const n of d.nodes) {
@@ -252,13 +275,13 @@ export function transitionLabel(t: Transition): string {
   return `${t.event}${t.guard ? ` [${t.guard}]` : ""}${t.action ? ` / ${t.action}` : ""}`;
 }
 
-export function renderState(d: StateDiagram): Rendered {
+export function renderState(d: StateDiagram, opts: RenderOptions = {}): Rendered {
   const prefix = `zk${++uid}`;
   // 開始の黒丸を置くため、全体を右に 40px ずらす
   const OFFSET = 40;
   const pos = new Map(d.states.map((s) => {
     const c = gridCenter(s);
-    return [s.id, { x: c.x + OFFSET, y: c.y + LABEL_ROOM }];
+    return [s.id, adjust({ x: c.x + OFFSET, y: c.y + LABEL_ROOM }, s.id, opts.offsets, OFFSET + STATE_W / 2, STATE_H / 2 + LABEL_ROOM)];
   }));
   const body: SvgNode[] = [];
   const labels: SvgNode[] = [];
@@ -281,8 +304,7 @@ export function renderState(d: StateDiagram): Rendered {
     const p1 = clipToBox({ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, STATE_W + 8, STATE_H + 8);
     const p2 = clipToBox({ x: b.x + nx, y: b.y + ny }, { x: a.x + nx, y: a.y + ny }, STATE_W + 8, STATE_H + 8);
     body.push(el("line", { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, stroke: color, "stroke-width": t.highlight ? 2.2 : 1.5, "marker-end": marker }));
-    const rev = d.transitions.findIndex((o) => o.from === t.to && o.to === t.from);
-    labels.push(placeLabel(i + 1, transitionLabel(t), a, b, p1, p2, STATE_W, STATE_H, rev > -1 && rev < i, !!t.highlight));
+    labels.push(placeLabel(i + 1, transitionLabel(t), a, b, p1, p2, STATE_W, STATE_H, !!t.highlight));
   });
 
   for (const s of d.states) {
@@ -348,21 +370,21 @@ export function renderComparison(d: ComparisonDiagram): Rendered {
 
 // ------------------------------------------------------------- 入口
 
-const RENDERERS: { [K in Diagram["kind"]]: (d: Extract<Diagram, { kind: K }>) => Rendered } = {
-  concept: renderConcept,
-  sequence: renderSequence,
-  state: renderState,
-  comparison: renderComparison,
+const RENDERERS: { [K in Diagram["kind"]]: (d: Extract<Diagram, { kind: K }>, opts: RenderOptions) => Rendered } = {
+  concept: (d, o) => ({ ...renderConcept(d, o), adjustable: true }),
+  sequence: (d) => renderSequence(d),
+  state: (d, o) => ({ ...renderState(d, o), adjustable: true }),
+  comparison: (d) => renderComparison(d),
 };
 
 export const KIND_LABEL: Record<string, string> = { concept: "概念図", sequence: "シーケンス図", state: "状態遷移図", comparison: "比較表" };
 
 /** 図解データを描く。未対応の種類・版は例外にする（呼び出し側でメッセージを出す）。 */
-export function renderDiagram(data: unknown): Rendered {
+export function renderDiagram(data: unknown, opts: RenderOptions = {}): Rendered {
   const d = data as Diagram;
   if (!d || typeof d !== "object") throw new Error("図解データが空です");
   if ((d as { version?: number }).version !== 1) throw new Error(`未対応の版です（version=${(d as { version?: number }).version}）`);
-  const r = RENDERERS[d.kind] as ((x: Diagram) => Rendered) | undefined;
+  const r = RENDERERS[d.kind] as ((x: Diagram, o: RenderOptions) => Rendered) | undefined;
   if (!r) throw new Error(`未対応の図の種類です（${String((d as { kind?: string }).kind)}）`);
-  return r(d);
+  return r(d, opts);
 }

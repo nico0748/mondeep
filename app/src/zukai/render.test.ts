@@ -108,3 +108,48 @@ describe("図解フレームワーク", () => {
     expect(() => renderDiagram({ version: 1, kind: "svg" })).toThrow(/未対応の図の種類/);
   });
 });
+
+describe("位置の微調整", () => {
+  const nodeRect = (svg: string, id: string) => {
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    const rect = doc.querySelector(`g.zk-node[data-id="${id}"] rect`)!;
+    return { x: Number(rect.getAttribute("x")), y: Number(rect.getAttribute("y")) };
+  };
+
+  it("部品だけを指定量ずらし、他の部品は動かさない", () => {
+    const base = toSvgString(renderDiagram(concept).svg);
+    const moved = toSvgString(renderDiagram(concept, { offsets: { waf: { dx: 30, dy: 40 } } }).svg);
+    const a = nodeRect(base, "waf");
+    const b = nodeRect(moved, "waf");
+    expect(b.x - a.x).toBe(30);
+    expect(b.y - a.y).toBe(40);
+    expect(nodeRect(moved, "app")).toEqual(nodeRect(base, "app"));
+  });
+
+  it("図の外（左上）へははみ出さない", () => {
+    const moved = toSvgString(renderDiagram(concept, { offsets: { user: { dx: -999, dy: -999 } } }).svg);
+    const r = nodeRect(moved, "user");
+    expect(r.x).toBeGreaterThanOrEqual(0);
+    expect(r.y).toBeGreaterThanOrEqual(0);
+  });
+
+  it("動かせるのは概念図と状態遷移図だけ", () => {
+    expect(renderDiagram(concept).adjustable).toBe(true);
+    expect(renderDiagram({ version: 1, kind: "comparison", columns: ["a"], rows: [{ label: "x", cells: ["y"] }] }).adjustable).toBe(false);
+  });
+});
+
+describe("矢印ラベルの配置", () => {
+  it("逆向きの 2 本の矢印のラベルは、それぞれの線の側に分かれて重ならない", () => {
+    const d = {
+      version: 1, kind: "concept",
+      nodes: [{ id: "a", label: "A", row: 0, col: 0 }, { id: "b", label: "B", row: 0, col: 2 }],
+      edges: [{ from: "a", to: "b", label: "要求" }, { from: "b", to: "a", label: "応答" }],
+    };
+    const doc = new DOMParser().parseFromString(toSvgString(renderDiagram(d).svg), "image/svg+xml");
+    const boxes = [...doc.querySelectorAll(".zk-edge-label rect")].map((r) => ({ y: Number(r.getAttribute("y")), h: Number(r.getAttribute("height")) }));
+    expect(boxes).toHaveLength(2);
+    const [p, q] = boxes.sort((m, n) => m.y - n.y);
+    expect(p.y + p.h).toBeLessThanOrEqual(q.y);
+  });
+});

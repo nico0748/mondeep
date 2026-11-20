@@ -54,7 +54,7 @@ export function QuestionView({ id }: { id: number }) {
           <h2>解説</h2>
           {explanation.body_md && <Markdown source={explanation.body_md} />}
           {explanation.diagrams.map((d, i) => (
-            <DiagramFigure key={i} data={d} name={`mondeep-${term.headword}-${q.id}-${i + 1}`} />
+            <DiagramFigure key={i} data={d} termId={term.id} name={`mondeep-${term.headword}-${q.id}-${i + 1}`} />
           ))}
           {explanation.sources.length > 0 && (
             <div className="sources">
