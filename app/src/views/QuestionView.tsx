@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { go, useLoad } from "../hooks";
+import { go, isComposing, useLoad } from "../hooks";
 import { fmtDate } from "../format";
 import { FORMAT_LABEL, SOURCE_LABEL, VERDICT_LABEL, type Attempt, type Verdict } from "../types";
 import { DeepLadder, ErrorNote, Tags, VerdictMark } from "../components/bits";
@@ -44,15 +44,21 @@ function VerdictFix({ attempt: a, onDone }: { attempt: Attempt; onDone: () => vo
 /** 問題へのメモ（F-14）。検索でき、Claude も get_term_history で読む。 */
 function NoteEditor({ questionId, note, onDone }: { questionId: number; note: string | null; onDone: () => void }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const save = async () => {
+    if (saving || draft === null) return;
+    // 保存中は入力を止める（保存の完了で、そのあとに打った文字を消さないように）。失敗したら下書きは残す
+    setSaving(true);
     try {
-      await api.setQuestionNote(questionId, draft ?? "");
+      await api.setQuestionNote(questionId, draft);
       setDraft(null);
       setErr(null);
       onDone();
     } catch (e) {
       setErr(`保存できませんでした: ${e}`);
+    } finally {
+      setSaving(false);
     }
   };
   return (
@@ -66,14 +72,15 @@ function NoteEditor({ questionId, note, onDone }: { questionId: number; note: st
             autoFocus
             rows={4}
             maxLength={10000}
+            disabled={saving}
             placeholder="納得いかない点、覚え方、次に聞いてほしいことなど"
             onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === "Enter" && save()}
+            onKeyDown={(e) => !isComposing(e) && (e.metaKey || e.ctrlKey) && e.key === "Enter" && save()}
             aria-label="メモ"
           />
           <div className="actions">
-            <button onClick={save}>保存</button>
-            <button className="link" onClick={() => setDraft(null)}>やめる</button>
+            <button onClick={save} disabled={saving}>{saving ? "保存中…" : "保存"}</button>
+            <button className="link" onClick={() => setDraft(null)} disabled={saving}>やめる</button>
           </div>
         </>
       ) : note ? (

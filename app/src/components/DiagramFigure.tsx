@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useLoad } from "../hooks";
 import { svgToReact } from "./SvgView";
 import { base64FromString } from "../encode";
+import { safeFileName } from "../obsidian";
 
 async function svgToPngBase64(svg: string, w: number, h: number, scale = 2): Promise<string> {
   const img = new Image();
@@ -69,7 +70,7 @@ export function DiagramFigure({ data, name, termId }: { data: unknown; name: str
     try {
       const svg = toSvgString(r.svg);
       const b64 = ext === "svg" ? base64FromString(svg) : await svgToPngBase64(svg, r.width, r.height);
-      const path = await api.exportFile(`${name}.${ext}`, b64);
+      const path = await api.exportFile(`${safeFileName(name, 100)}.${ext}`, b64);
       setNote(`保存しました: ${path}`);
     } catch (e) {
       setNote(`書き出せませんでした: ${e}`);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { go, useLoad } from "../hooks";
+import { go, isComposing, useLoad } from "../hooks";
 import { ErrorNote } from "../components/bits";
 
 /** タグ・分野の管理（F-10）。表記ゆれをまとめたり、使わなくなったタグを外したりする。 */
@@ -9,6 +9,8 @@ export function TagsView() {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  // 変更・削除の途中は、ほかの行の編集を始められないようにする（完了が新しい編集を閉じないように）
+  const [busy, setBusy] = useState(false);
 
   const startEdit = (tag: string) => {
     setEditing(tag);
@@ -20,6 +22,7 @@ export function TagsView() {
     if (!next || next === tag) return setEditing(null);
     const merging = (data ?? []).find((t) => t.tag === next);
     if (merging && !window.confirm(`「${tag}」を「${next}」にまとめます。両方のタグが付いた用語は「${next}」だけになります。`)) return;
+    setBusy(true);
     try {
       const n = await api.renameTag(tag, next);
       setNote(`${n} 語のタグを「${next}」に${merging ? "まとめ" : "変え"}ました。`);
@@ -27,16 +30,21 @@ export function TagsView() {
       reload();
     } catch (e) {
       setNote(`変えられませんでした: ${e}`);
+    } finally {
+      setBusy(false);
     }
   };
   const remove = async (tag: string, count: number) => {
     if (!window.confirm(`「${tag}」を ${count} 語から外します。用語や学習記録は消えません。`)) return;
+    setBusy(true);
     try {
       await api.removeTag(tag);
       setNote(`「${tag}」を外しました。`);
       reload();
     } catch (e) {
       setNote(`外せませんでした: ${e}`);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -63,8 +71,10 @@ export function TagsView() {
                       value={draft}
                       autoFocus
                       maxLength={40}
+                      disabled={busy}
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => {
+                        if (isComposing(e)) return;
                         if (e.key === "Enter") void rename(t.tag);
                         if (e.key === "Escape") setEditing(null);
                       }}
@@ -79,13 +89,13 @@ export function TagsView() {
                   <div className="row-actions">
                   {editing === t.tag ? (
                     <>
-                      <button className="link" onClick={() => rename(t.tag)}>決定</button>
-                      <button className="link" onClick={() => setEditing(null)}>やめる</button>
+                      <button className="link" onClick={() => rename(t.tag)} disabled={busy}>決定</button>
+                      <button className="link" onClick={() => setEditing(null)} disabled={busy}>やめる</button>
                     </>
                   ) : (
                     <>
-                      <button className="link" onClick={() => startEdit(t.tag)}>名前を変える</button>
-                      <button className="link danger" onClick={() => remove(t.tag, t.term_count)}>外す</button>
+                      <button className="link" onClick={() => startEdit(t.tag)} disabled={busy}>名前を変える</button>
+                      <button className="link danger" onClick={() => remove(t.tag, t.term_count)} disabled={busy}>外す</button>
                     </>
                   )}
                   </div>

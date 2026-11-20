@@ -369,6 +369,13 @@ fn verdict_override_keeps_original_and_reschedules_latest_tree() {
     let card = s.term_card(q1.term_id).unwrap();
     assert_eq!(card.counts.incorrect, 2);
 
+    // 終了済みのセッションの正答率も計算し直す（q1 不正解・q2 不正解 → 0%）
+    s.end_session(sess.id, "まとめ").unwrap();
+    s.override_verdict(r2.attempt_id, Some(Verdict::Correct)).unwrap();
+    assert_eq!(s.get_session(sess.id).unwrap().accuracy, Some(0.5));
+    s.override_verdict(r2.attempt_id, None).unwrap();
+    assert_eq!(s.get_session(sess.id).unwrap().accuracy, Some(0.0));
+
     // Claude も履歴で、直されたことを知れる
     let h = s.term_history(q1.term_id, 10).unwrap();
     let e = h.entries.iter().find(|e| e.question_id == q1.id).unwrap();

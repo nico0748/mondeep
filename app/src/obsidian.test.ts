@@ -71,6 +71,11 @@ describe("Obsidian への書き出し", () => {
     expect(index).toContain("## （タグなし）\n\n- [[A_B (2)]]");
   });
 
+  it("1 語だけ書き出すときも、目次ノートの名前は使わない", () => {
+    const files = buildExport([sample(INDEX_NOTE, [])]);
+    expect(files.map((f) => f.path)[0]).toBe(`${INDEX_NOTE} (2).md`);
+  });
+
   it("描けない図は飛ばして、理由を書く", () => {
     const ex = sample();
     ex.questions[0].explanation!.diagrams = [{ version: 1, kind: "unknown" }];
@@ -83,6 +88,9 @@ describe("Obsidian への書き出し", () => {
     expect(safeFileName("../etc/passwd")).toBe("_etc_passwd");
     expect(safeFileName("TLS 1.3（ハンドシェイク）")).toBe("TLS 1.3_ハンドシェイク_");
     expect(safeFileName("...")).toBe("無題");
+    // 切り詰めや trim のあとでも、先頭が「.」にならない（アプリ側は先頭の「.」を拒否する）
+    expect(safeFileName(". .x")).toBe("x");
+    expect(safeFileName("あ .x", 2)).toBe("あ");
     expect(demoteHeadings("# a\n####### b\n~~~\n# c\n~~~", 4)).toBe("##### a\n####### b\n~~~\n# c\n~~~");
   });
 });

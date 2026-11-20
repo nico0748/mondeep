@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketize, bucketLabel, bucketSize, levelLabel, niceTicks } from "./stats";
+import { bucketize, bucketLabel, bucketSize, levelLabel, niceTicks, stackSegments } from "./stats";
 
 const day = (date: string, correct = 0, partial = 0, incorrect = 0) => ({ date, counts: { correct, partial, incorrect } });
 
@@ -26,6 +26,19 @@ describe("学習統計の計算", () => {
     expect(niceTicks(3)).toEqual([0, 1, 2, 3]);
     expect(niceTicks(17)).toEqual([0, 5, 10, 15, 20]);
     expect(niceTicks(120)).toEqual([0, 50, 100, 150]);
+  });
+
+  it("積み上げの段は、大きな週と同じ目盛りでも少ない判定を消さない", () => {
+    // 目盛りの上限 150 件を高さ 200px で描くと、1 件は約 1.33px
+    const segs = stackSegments({ correct: 1, partial: 0, incorrect: 1 }, 208, 200 / 150);
+    expect(segs.map((s) => s.series)).toEqual(["correct", "incorrect"]);
+    for (const s of segs) expect(s.h).toBeGreaterThanOrEqual(1);
+    // 下の段の上端はすき間を空けて、上の段の下端より下にある
+    expect(segs[0].y).toBeGreaterThanOrEqual(segs[1].y + segs[1].h);
+    // 十分高い段は 2px のすき間を空ける
+    const big = stackSegments({ correct: 10, partial: 5, incorrect: 0 }, 200, 10);
+    expect(big[0]).toMatchObject({ series: "correct", h: 98, y: 100, top: false });
+    expect(big[1]).toMatchObject({ series: "partial", h: 50, y: 50, top: true });
   });
 
   it("段数の区分はアプリの呼び方（最初の問い・1 段目…）に合わせる", () => {

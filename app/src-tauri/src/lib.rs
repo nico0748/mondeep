@@ -219,7 +219,7 @@ fn export_files(folder: String, files: Vec<ExportFile>) -> CmdResult<String> {
 /// DB 全体を今すぐバックアップする（ダウンロード/Mondeep/ に日時入りのファイル名で保存）。
 #[tauri::command]
 fn backup_now(state: State<AppState>) -> CmdResult<String> {
-    let target = export::export_root()?.join(format!("mondeep-backup-{}.db", Local::now().format("%Y%m%d-%H%M%S")));
+    let target = export::export_root()?.join(format!("mondeep-backup-{}.db", Local::now().format("%Y%m%d-%H%M%S-%3f")));
     with_store(&state, |s| backup::backup_to(s.conn(), &target))?;
     Ok(target.to_string_lossy().to_string())
 }

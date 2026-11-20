@@ -20,9 +20,9 @@ export function safeFileName(name: string, max = 80): string {
     .normalize("NFC")
     .replace(/[^\p{L}\p{N}\-_.() ]/gu, "_")
     .replace(/\.{2,}/g, ".")
-    .trim()
-    .replace(/^\.+/, "")
     .slice(0, max)
+    // 切り詰めと trim のあとで先頭が「.」にならないよう、最後に先頭の「.」と空白をまとめて落とす
+    .replace(/^[.\s]+/, "")
     .trim();
   return s || "無題";
 }
@@ -183,8 +183,8 @@ export function buildIndexNote(notes: { name: string; ex: TermExport }[], used: 
 /** 書き出すファイル一式（1 語なら目次なし）。 */
 export function buildExport(list: TermExport[], exportedAt: Date = new Date()): ExportFile[] {
   const used = new Set<string>();
-  // 目次の名前を先に確保しておく（同名の用語があっても目次が上書きされないように）
-  if (list.length > 1) used.add(INDEX_NOTE.toLowerCase());
+  // 目次の名前は 1 語のときも確保しておく（同名の用語のノートが、前に書き出した目次を上書きしないように）
+  used.add(INDEX_NOTE.toLowerCase());
   const notes = list.map((ex) => ({ ex, built: buildTermNote(ex, used, exportedAt) }));
   const files = notes.flatMap((n) => n.built.files);
   if (list.length > 1) {

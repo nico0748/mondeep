@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { DailyStat } from "../types";
 import { VERDICT_LABEL } from "../types";
-import { bucketize, bucketLabel, bucketSize, niceTicks, total, type Bucket } from "./stats";
+import { bucketize, bucketLabel, bucketSize, niceTicks, SERIES, stackSegments, total, type Bucket } from "./stats";
 
-const SERIES = ["correct", "partial", "incorrect"] as const;
 const H = 200; // 描画域の高さ
 const AXIS_W = 32;
 const X_AXIS_H = 24;
@@ -73,22 +72,15 @@ export function DailyChart({ daily, days }: { daily: DailyStat[]; days: number }
             {buckets.map((b, i) => {
               const cx = AXIS_W + slot * i + slot / 2;
               const x = cx - barW / 2;
-              let acc = 0;
-              const parts = SERIES.filter((s) => b.counts[s] > 0);
               return (
                 <g key={b.from} className={`viz-col ${hover === i ? "on" : ""}`}>
-                  {parts.map((s, k) => {
-                    const v = b.counts[s];
-                    const y0 = y(acc);
-                    acc += v;
-                    const y1 = y(acc);
-                    // 上に次の段があれば、面の色のすき間を空ける
-                    if (k === parts.length - 1) {
-                      return <path key={s} className={`bar ${s}`} d={topRounded(x, y1, barW, y0 - y1, 4)} />;
-                    }
-                    const h = Math.max(0, y0 - y1 - GAP);
-                    return <rect key={s} className={`bar ${s}`} x={x} y={y0 - h} width={barW} height={h} />;
-                  })}
+                  {stackSegments(b.counts, y(0), H / top, GAP).map((sg) =>
+                    sg.top ? (
+                      <path key={sg.series} className={`bar ${sg.series}`} d={topRounded(x, sg.y, barW, sg.h, 4)} />
+                    ) : (
+                      <rect key={sg.series} className={`bar ${sg.series}`} x={x} y={sg.y} width={barW} height={sg.h} />
+                    ),
+                  )}
                   {showLabel(i) && (
                     <text className="viz-x" x={cx} y={TOP + H + 16} textAnchor="middle">{bucketLabel(b).split("〜")[0]}</text>
                   )}

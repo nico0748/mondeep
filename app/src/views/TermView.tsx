@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { go, useLoad } from "../hooks";
+import { go, isComposing, useLoad } from "../hooks";
 import { fmtDate, fmtDay, pct } from "../format";
 import { FORMAT_LABEL } from "../types";
 import { Counts, ErrorNote, VerdictMark } from "../components/bits";
@@ -51,7 +51,7 @@ export function TermView({ id }: { id: number }) {
           {term.tags.map((t) => (
             <span className="tag" key={t}>{t}<button className="tag-x" aria-label={`${t} を外す`} onClick={() => removeTag(t)}>×</button></span>
           ))}
-          <input className="tag-input" value={tagDraft} placeholder="タグを追加" onChange={(e) => setTagDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTag()} aria-label="タグを追加" />
+          <input className="tag-input" value={tagDraft} placeholder="タグを追加" onChange={(e) => setTagDraft(e.target.value)} onKeyDown={(e) => !isComposing(e) && e.key === "Enter" && addTag()} aria-label="タグを追加" />
         </div>
         <div className="entry-actions">
           <button className={`flag-toggle ${term.needs_review ? "on" : ""}`} onClick={toggle} aria-pressed={term.needs_review}>

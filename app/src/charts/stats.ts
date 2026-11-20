@@ -28,6 +28,40 @@ export function bucketize(daily: DailyStat[], size: number): Bucket[] {
   return out;
 }
 
+export const SERIES = ["correct", "partial", "incorrect"] as const;
+export type Series = (typeof SERIES)[number];
+
+export interface Segment {
+  series: Series;
+  /** 上端の y と高さ（px）。最後の段（いちばん上）は角を丸める */
+  y: number;
+  h: number;
+  top: boolean;
+}
+
+/**
+ * 積み上げ棒の段を、下から順に組み立てる。`scale` は 1 件あたりの高さ（px）、`base` は土台の y。
+ * 段の間には面の色のすき間（最大 `gap` px）を空けるが、低い段では段の高さの 3 分の 1 までにとどめ、
+ * 値が 1 以上の段は必ず 1px 以上残す（大きな週と同じ目盛りでも、少ない判定が消えないように）。
+ * そのぶん棒が実際の値よりわずかに高くなることがある（値は表とツールチップで正確に読める）。
+ */
+export function stackSegments(counts: VerdictCounts, base: number, scale: number, gap = 2): Segment[] {
+  const parts = SERIES.filter((s) => counts[s] > 0);
+  const out: Segment[] = [];
+  let y0 = base;
+  parts.forEach((s, k) => {
+    const raw = counts[s] * scale;
+    const top = k === parts.length - 1;
+    const g = top ? 0 : Math.min(gap, raw / 3);
+    const h = Math.max(1, raw - g);
+    const y = y0 - g - h;
+    out.push({ series: s, y, h, top });
+    // 1px に広げた段があっても、次の段と重ならないよう、描いた位置から積む
+    y0 = y;
+  });
+  return out;
+}
+
 /** 期間に合う区切りの日数（90 日までは 1 日、それより長ければ 1 週）。 */
 export const bucketSize = (days: number) => (days > 90 ? 7 : 1);
 

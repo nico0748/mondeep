@@ -984,6 +984,14 @@ impl Store {
                     self.update_review(&q, day, &reviewed_at)?;
                 }
             }
+            // 終了済みのセッションは正答率を保存しているので、計算し直す（進行中のセッションはまだ持たない）
+            if self.get_session(q.session_id)?.ended_at.is_some() {
+                let (counts, _) = self.session_counts(q.session_id)?;
+                self.conn.execute(
+                    "UPDATE sessions SET accuracy = ?1 WHERE id = ?2",
+                    params![counts.accuracy(), q.session_id],
+                )?;
+            }
             self.get_attempt(attempt_id)
         })
     }

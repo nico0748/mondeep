@@ -10,6 +10,8 @@ use serde::Deserialize;
 /// 1 回に書き出せるファイル数と、1 ファイルの上限（デコード後）。
 pub const MAX_FILES: usize = 20_000;
 pub const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
+/// 1 回の書き出し全体の上限（デコード後）。
+pub const MAX_TOTAL_BYTES: usize = 200 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 pub struct ExportFile {
@@ -56,6 +58,16 @@ pub fn safe_relative(path: &str, allowed: &[&str]) -> Option<PathBuf> {
 
 /// `root/folder/` の下にファイルをまとめて書き出す（同名は上書き）。書き出したフォルダを返す。
 pub fn write_files(root: &Path, folder: &str, files: &[ExportFile], allowed: &[&str]) -> Result<PathBuf, String> {
+    write_files_limited(root, folder, files, allowed, MAX_TOTAL_BYTES)
+}
+
+fn write_files_limited(
+    root: &Path,
+    folder: &str,
+    files: &[ExportFile],
+    allowed: &[&str],
+    max_total: usize,
+) -> Result<PathBuf, String> {
     let folder = safe_segment(folder).ok_or("書き出し先のフォルダ名が不正です")?;
     if files.is_empty() {
         return Err("書き出すファイルがありません".into());
@@ -65,11 +77,16 @@ pub fn write_files(root: &Path, folder: &str, files: &[ExportFile], allowed: &[&
     }
     // 先にすべて検査してから書く（途中で止まって半端な書き出しにならないように）
     let mut prepared = Vec::with_capacity(files.len());
+    let mut total = 0usize;
     for f in files {
         let rel = safe_relative(&f.path, allowed).ok_or_else(|| format!("書き出せないファイル名です: {}", f.path))?;
         let bytes = base64::engine::general_purpose::STANDARD.decode(&f.data_base64).map_err(|e| e.to_string())?;
         if bytes.len() > MAX_FILE_BYTES {
             return Err(format!("{} が大きすぎます", f.path));
+        }
+        total += bytes.len();
+        if total > max_total {
+            return Err(format!("書き出すファイルが合計 {} MB を超えます", max_total / 1024 / 1024));
         }
         prepared.push((rel, bytes));
     }
@@ -117,5 +134,9 @@ mod tests {
         assert!(err.is_err());
         assert!(!dir.path().join("Other").exists());
         assert!(write_files(dir.path(), "..", &[file("ok.md", "x")], &["md"]).is_err());
+        // 合計サイズの上限を超えたら、何も書かない
+        let big = write_files_limited(dir.path(), "Big", &[file("a.md", "12345"), file("b.md", "67890")], &["md"], 8);
+        assert!(big.is_err());
+        assert!(!dir.path().join("Big").exists());
     }
 }
