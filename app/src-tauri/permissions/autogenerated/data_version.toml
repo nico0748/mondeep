@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-data-version"
+description = "Enables the data_version command without any pre-configured scope."
+commands.allow = ["data_version"]
+
+[[permission]]
+identifier = "deny-data-version"
+description = "Denies the data_version command without any pre-configured scope."
+commands.deny = ["data_version"]

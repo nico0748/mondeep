@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-weak-terms"
+description = "Enables the weak_terms command without any pre-configured scope."
+commands.allow = ["weak_terms"]
+
+[[permission]]
+identifier = "deny-weak-terms"
+description = "Denies the weak_terms command without any pre-configured scope."
+commands.deny = ["weak_terms"]

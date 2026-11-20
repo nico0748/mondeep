@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-question-detail"
+description = "Enables the question_detail command without any pre-configured scope."
+commands.allow = ["question_detail"]
+
+[[permission]]
+identifier = "deny-question-detail"
+description = "Denies the question_detail command without any pre-configured scope."
+commands.deny = ["question_detail"]

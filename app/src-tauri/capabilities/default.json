@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "メインウィンドウから呼べる操作。学習データの閲覧・要復習の印・削除・設定の追記・外部リンクを開くことだけを許可する。",
+  "windows": ["main"],
+  "permissions": [
+    "allow-app-info",
+    "allow-data-version",
+    "allow-history",
+    "allow-session-detail",
+    "allow-question-detail",
+    "allow-list-terms",
+    "allow-term-card",
+    "allow-all-tags",
+    "allow-review-queue",
+    "allow-weak-terms",
+    "allow-search",
+    "allow-set-needs-review",
+    "allow-set-term-tags",
+    "allow-delete-session",
+    "allow-install-mcp-config",
+    "allow-open-external",
+    "allow-export-file"
+  ]
+}
