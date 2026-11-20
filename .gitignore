@@ -6,3 +6,4 @@ dist
 *.db-shm
 .DS_Store
 app/src-tauri/gen
+app/src-tauri/binaries

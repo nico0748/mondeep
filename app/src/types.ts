@@ -26,3 +26,4 @@ export interface AppInfo { version: string; db_path: string; backup_dir: string;
 export const FORMAT_LABEL: Record<SessionFormat, string> = { meaning_to_term: "意味→用語", term_to_meaning: "用語→意味＋深掘り", mixed: "混合" };
 export const VERDICT_LABEL: Record<Verdict, string> = { correct: "正解", partial: "部分正解", incorrect: "不正解" };
 export const SOURCE_LABEL: Record<Source["kind"], string> = { obsidian: "Obsidian", knowledge_db: "ナレッジ DB", web: "Web", other: "その他" };
+export interface DiagramAdjustment { term_id: number; kind: string; element_id: string; dx: number; dy: number; updated_at: string }

@@ -177,7 +177,16 @@ button.headword.small:hover { color: var(--blue); }
 .diagram-error { color: var(--incorrect); font-size: 0.85rem; border: 1px dashed var(--incorrect); border-radius: 8px; padding: 10px; margin: 12px 0; }
 .modal { position: fixed; inset: 0; background: rgba(15, 22, 30, 0.6); display: grid; place-items: center; z-index: 10; padding: 24px; }
 .modal-body { background: var(--surface); border-radius: 12px; padding: 16px; max-width: 96vw; max-height: 94vh; overflow: auto; position: relative; }
-.modal-close { position: sticky; top: 0; float: right; border: 1px solid var(--rule); background: var(--surface); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+.modal-bar { position: sticky; top: -16px; z-index: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--surface); padding: 0 0 10px; }
+.modal-bar button { border: 1px solid var(--rule); background: var(--surface); border-radius: 8px; padding: 4px 12px; cursor: pointer; font-size: 0.85rem; }
+.modal-bar .toggle.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.modal-close { margin-left: auto; }
+.hint-inline { color: var(--muted); font-size: 0.8rem; }
+.modal-canvas.editing { touch-action: none; user-select: none; }
+.modal-canvas.editing .zk-node { cursor: grab; }
+.modal-canvas.editing .zk-node:active { cursor: grabbing; }
+.modal-canvas.editing .zk-node rect:first-child { stroke-dasharray: 5 3; }
+.adjusted { margin-left: 8px; font-size: 0.75rem; color: var(--blue); }
 .modal-canvas svg { display: block; }
 .sources { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 12px; }
 .sources ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 0.9rem; }

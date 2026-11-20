@@ -132,6 +132,29 @@ fn set_term_tags(state: State<AppState>, term_id: i64, tags: Vec<String>) -> Cmd
     with_store(&state, |s| s.set_term_tags(term_id, &tags))
 }
 
+#[tauri::command]
+fn diagram_adjustments(state: State<AppState>, term_id: i64) -> CmdResult<Vec<DiagramAdjustment>> {
+    with_store(&state, |s| s.diagram_adjustments(term_id))
+}
+
+/// 図の部品をドラッグした結果を保存する（部品ごと）。
+#[tauri::command]
+fn set_diagram_adjustment(
+    state: State<AppState>,
+    term_id: i64,
+    kind: String,
+    element_id: String,
+    dx: f64,
+    dy: f64,
+) -> CmdResult<()> {
+    with_store(&state, |s| s.set_diagram_adjustment(term_id, &kind, &element_id, dx, dy))
+}
+
+#[tauri::command]
+fn reset_diagram_adjustments(state: State<AppState>, term_id: i64, kind: String) -> CmdResult<usize> {
+    with_store(&state, |s| s.reset_diagram_adjustments(term_id, &kind))
+}
+
 /// 削除はアプリ画面からのみ（MCP には公開しない）。
 #[tauri::command]
 fn delete_session(state: State<AppState>, id: i64) -> CmdResult<()> {
@@ -211,6 +234,9 @@ pub fn run() {
             search,
             set_needs_review,
             set_term_tags,
+            diagram_adjustments,
+            set_diagram_adjustment,
+            reset_diagram_adjustments,
             delete_session,
             install_mcp_config,
             open_external,

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-diagram-adjustments"
+description = "Enables the diagram_adjustments command without any pre-configured scope."
+commands.allow = ["diagram_adjustments"]
+
+[[permission]]
+identifier = "deny-diagram-adjustments"
+description = "Denies the diagram_adjustments command without any pre-configured scope."
+commands.deny = ["diagram_adjustments"]

@@ -300,3 +300,35 @@ fn ten_thousand_questions_stay_fast() {
     let elapsed = t0.elapsed();
     assert!(elapsed.as_millis() < 1000 * if cfg!(debug_assertions) { 5 } else { 1 }, "{elapsed:?}");
 }
+
+#[test]
+fn diagram_adjustments_are_kept_per_term_kind_and_element() {
+    let s = Store::open_in_memory().unwrap();
+    let t = s.resolve_term(&term("WAF", &[], &[])).unwrap();
+    s.set_diagram_adjustment(t.id, "concept", "waf", 12.4, -30.0).unwrap();
+    s.set_diagram_adjustment(t.id, "concept", "app", 5.0, 5.0).unwrap();
+    s.set_diagram_adjustment(t.id, "state", "waf", 1.0, 1.0).unwrap();
+    // 上書き
+    s.set_diagram_adjustment(t.id, "concept", "app", 8.0, 0.0).unwrap();
+    let adj = s.diagram_adjustments(t.id).unwrap();
+    assert_eq!(adj.len(), 3);
+    let waf = adj.iter().find(|a| a.kind == "concept" && a.element_id == "waf").unwrap();
+    assert_eq!((waf.dx, waf.dy), (12.0, -30.0));
+    // 0,0 は消す
+    s.set_diagram_adjustment(t.id, "concept", "app", 0.0, 0.0).unwrap();
+    assert_eq!(s.diagram_adjustments(t.id).unwrap().len(), 2);
+    // 自動配置の図・不正な値は受け付けない
+    assert!(s.set_diagram_adjustment(t.id, "sequence", "c", 1.0, 1.0).is_err());
+    assert!(s.set_diagram_adjustment(t.id, "concept", "x", f64::NAN, 1.0).is_err());
+    assert!(s.set_diagram_adjustment(9999, "concept", "x", 1.0, 1.0).is_err());
+    // 移動量は上限で丸める
+    s.set_diagram_adjustment(t.id, "state", "far", 99999.0, 0.0).unwrap();
+    let far = s.diagram_adjustments(t.id).unwrap().into_iter().find(|a| a.element_id == "far").unwrap();
+    assert_eq!(far.dx, 2000.0);
+    // 種類ごとに元に戻す
+    assert_eq!(s.reset_diagram_adjustments(t.id, "state").unwrap(), 2);
+    assert_eq!(s.diagram_adjustments(t.id).unwrap().len(), 1);
+    // 用語を消すと微調整も消える
+    s.delete_term(t.id).unwrap();
+    assert!(s.diagram_adjustments(t.id).unwrap().is_empty());
+}

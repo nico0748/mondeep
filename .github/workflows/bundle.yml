@@ -1,0 +1,43 @@
+name: Bundle
+
+# アプリ本体と MCP サーバー（sidecar）を 1 つにまとめた配布物を作る。
+# まず macOS（Apple Silicon）。Windows は対応時に matrix に足す。
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "app/**"
+      - "crates/**"
+      - "scripts/prepare-sidecar.mjs"
+      - "Cargo.lock"
+      - ".github/workflows/bundle.yml"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build app with bundled MCP server
+        working-directory: app
+        run: npm ci && npm run bundle
+      - name: Check the bundled MCP server starts
+        timeout-minutes: 2
+        run: |
+          APP=target/release/bundle/macos/Mondeep.app
+          ls -la "$APP/Contents/MacOS"
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | "$APP/Contents/MacOS/mondeep-mcp" --db "$RUNNER_TEMP/ci.db" | tee "$RUNNER_TEMP/init.json"
+          grep -q '"name":"mondeep"' "$RUNNER_TEMP/init.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mondeep-macos
+          path: target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
