@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-override-verdict"
+description = "Enables the override_verdict command without any pre-configured scope."
+commands.allow = ["override_verdict"]
+
+[[permission]]
+identifier = "deny-override-verdict"
+description = "Denies the override_verdict command without any pre-configured scope."
+commands.deny = ["override_verdict"]

@@ -3,11 +3,14 @@
 //! - DB は OS 標準のアプリデータフォルダに置き、MCP サーバーと共有する（WAL モード）
 //! - 起動時に自動バックアップ（直近 7 世代）
 //! - 外部通信はしない。外部リンクは http(s) だけを OS のブラウザで開く
+mod export;
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use base64::Engine;
 use chrono::Local;
+use export::ExportFile;
 use mondeep_core::model::*;
 use mondeep_core::store::HistoryGroup;
 use mondeep_core::{backup, claude_config, paths, Store};
@@ -195,20 +198,72 @@ fn open_external(app: tauri::AppHandle, url: String) -> CmdResult<()> {
 /// 図の書き出し（SVG / PNG）。ダウンロードフォルダの Mondeep フォルダに保存し、保存先を返す。
 #[tauri::command]
 fn export_file(file_name: String, data_base64: String) -> CmdResult<String> {
-    let ext_ok = file_name.ends_with(".svg") || file_name.ends_with(".png");
-    let safe: String = file_name
-        .chars()
-        .map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
-        .collect();
-    if !ext_ok || safe.starts_with('.') || safe.contains("..") {
-        return Err("書き出せるのは .svg と .png だけです".into());
-    }
+    let rel = export::safe_relative(&file_name, &["svg", "png"])
+        .filter(|p| p.components().count() == 1)
+        .ok_or("書き出せるのは .svg と .png だけです")?;
     let bytes = base64::engine::general_purpose::STANDARD.decode(data_base64).map_err(|e| e.to_string())?;
-    let dir = dirs::download_dir().or_else(dirs::home_dir).ok_or("保存先のフォルダが分かりません")?.join("Mondeep");
+    let dir = export::export_root()?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(safe);
+    let path = dir.join(rel);
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Obsidian 用の Markdown と図をまとめて書き出す（ダウンロード/Mondeep/<folder>/ の下）。
+#[tauri::command]
+fn export_files(folder: String, files: Vec<ExportFile>) -> CmdResult<String> {
+    let dir = export::write_files(&export::export_root()?, &folder, &files, &["md", "svg", "png"])?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// DB 全体を今すぐバックアップする（ダウンロード/Mondeep/ に日時入りのファイル名で保存）。
+#[tauri::command]
+fn backup_now(state: State<AppState>) -> CmdResult<String> {
+    let target = export::export_root()?.join(format!("mondeep-backup-{}.db", Local::now().format("%Y%m%d-%H%M%S-%3f")));
+    with_store(&state, |s| backup::backup_to(s.conn(), &target))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+/// 判定を手で直す（None で Claude の判定に戻す）。
+#[tauri::command]
+fn override_verdict(state: State<AppState>, attempt_id: i64, verdict: Option<Verdict>) -> CmdResult<Attempt> {
+    with_store(&state, |s| s.override_verdict(attempt_id, verdict))
+}
+
+#[tauri::command]
+fn set_question_note(state: State<AppState>, question_id: i64, note: String) -> CmdResult<Question> {
+    with_store(&state, |s| s.set_question_note(question_id, &note))
+}
+
+#[tauri::command]
+fn tag_stats(state: State<AppState>) -> CmdResult<Vec<TagStat>> {
+    with_store(&state, |s| s.tag_stats())
+}
+
+#[tauri::command]
+fn rename_tag(state: State<AppState>, old: String, new: String) -> CmdResult<usize> {
+    with_store(&state, |s| s.rename_tag(&old, &new))
+}
+
+#[tauri::command]
+fn remove_tag(state: State<AppState>, tag: String) -> CmdResult<usize> {
+    with_store(&state, |s| s.remove_tag(&tag))
+}
+
+/// 学習統計（端末のタイムゾーンの日付で集計）。
+#[tauri::command]
+fn stats(state: State<AppState>, days: i64) -> CmdResult<Stats> {
+    with_store(&state, |s| s.stats(days, today(), &Local))
+}
+
+#[tauri::command]
+fn term_export(state: State<AppState>, id: i64) -> CmdResult<TermExport> {
+    with_store(&state, |s| s.term_export(id))
+}
+
+#[tauri::command]
+fn export_all(state: State<AppState>) -> CmdResult<Vec<TermExport>> {
+    with_store(&state, |s| s.export_all())
 }
 
 pub fn run() {
@@ -241,6 +296,16 @@ pub fn run() {
             install_mcp_config,
             open_external,
             export_file,
+            export_files,
+            backup_now,
+            override_verdict,
+            set_question_note,
+            tag_stats,
+            rename_tag,
+            remove_tag,
+            stats,
+            term_export,
+            export_all,
         ])
         .run(tauri::generate_context!())
         .expect("Mondeep の起動に失敗しました");

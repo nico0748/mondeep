@@ -20,6 +20,18 @@ pub fn backup(conn: &Connection, db_path: &Path, stamp: &str) -> Result<PathBuf>
     Ok(target)
 }
 
+/// 指定したファイルに `VACUUM INTO` で一貫したコピーを取る（手動バックアップ、F-13）。既にあれば失敗する。
+pub fn backup_to(conn: &Connection, target: &Path) -> Result<()> {
+    if target.exists() {
+        return Err(crate::Error::Invalid(format!("{} はすでにあります", target.display())));
+    }
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    conn.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])?;
+    Ok(())
+}
+
 pub fn backup_dir(db_path: &Path) -> PathBuf {
     db_path.parent().unwrap_or(Path::new(".")).join("backups")
 }
@@ -67,5 +79,15 @@ mod tests {
         let b = Connection::open(backup_dir(&db).join(&names[6])).unwrap();
         let v: i64 = b.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, crate::db::MIGRATIONS.len() as i64);
+    }
+
+    #[test]
+    fn manual_backup_refuses_to_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("mondeep.db")).unwrap();
+        let target = dir.path().join("out").join("copy.db");
+        backup_to(&conn, &target).unwrap();
+        assert!(Connection::open(&target).is_ok());
+        assert!(backup_to(&conn, &target).is_err());
     }
 }

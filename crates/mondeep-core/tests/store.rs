@@ -332,3 +332,188 @@ fn diagram_adjustments_are_kept_per_term_kind_and_element() {
     s.delete_term(t.id).unwrap();
     assert!(s.diagram_adjustments(t.id).unwrap().is_empty());
 }
+
+#[test]
+fn verdict_override_keeps_original_and_reschedules_latest_tree() {
+    let s = Store::open_in_memory().unwrap();
+    let sess = s.start_session(SessionFormat::MeaningToTerm, "ネットワーク").unwrap();
+    let q1 = ask(&s, sess.id, term("TCP", &[], &[]), None, Some(Format::MeaningToTerm));
+    let r1 = s.record_attempt(&attempt(q1.id, Verdict::Correct), d("2026-11-19")).unwrap();
+    // 古い木（q1）と、最新の木（q2）
+    let q2 = ask(&s, sess.id, term("TCP", &[], &[]), None, Some(Format::MeaningToTerm));
+    let r2 = s.record_attempt(&attempt(q2.id, Verdict::Incorrect), d("2026-11-20")).unwrap();
+    assert_eq!((r2.review.streak, r2.review.interval_days), (0, 1));
+    let reviewed_at = r2.review.last_reviewed_at.clone();
+
+    // 最新の木を「正解」に直す → スケジュールも計算し直す（復習した日時はそのまま）
+    let a = s.override_verdict(r2.attempt_id, Some(Verdict::Correct)).unwrap();
+    assert_eq!(a.verdict, Verdict::Correct);
+    assert_eq!(a.original_verdict, Some(Verdict::Incorrect));
+    assert!(a.overridden_at.is_some());
+    let rs = s.review_state(q2.term_id, Format::MeaningToTerm).unwrap().unwrap();
+    assert_eq!(rs.streak, 2, "q1 の正解に続く 2 回目の正解として数える");
+    assert_eq!(rs.interval_days, 3);
+    assert_eq!(rs.last_reviewed_at, reviewed_at);
+
+    // 何度直しても元の判定は Claude のもののまま。None で元に戻す
+    s.override_verdict(r2.attempt_id, Some(Verdict::Partial)).unwrap();
+    let a = s.override_verdict(r2.attempt_id, None).unwrap();
+    assert_eq!((a.verdict, a.original_verdict, a.overridden_at), (Verdict::Incorrect, None, None));
+    let rs = s.review_state(q2.term_id, Format::MeaningToTerm).unwrap().unwrap();
+    assert_eq!((rs.streak, rs.interval_days), (0, 1));
+
+    // 古い木を直しても、スケジュールは変えない（記録と正答率だけ変わる）
+    s.override_verdict(r1.attempt_id, Some(Verdict::Incorrect)).unwrap();
+    let rs2 = s.review_state(q2.term_id, Format::MeaningToTerm).unwrap().unwrap();
+    assert_eq!(rs2, rs);
+    let card = s.term_card(q1.term_id).unwrap();
+    assert_eq!(card.counts.incorrect, 2);
+
+    // 終了済みのセッションの正答率も計算し直す（q1 不正解・q2 不正解 → 0%）
+    s.end_session(sess.id, "まとめ").unwrap();
+    s.override_verdict(r2.attempt_id, Some(Verdict::Correct)).unwrap();
+    assert_eq!(s.get_session(sess.id).unwrap().accuracy, Some(0.5));
+    s.override_verdict(r2.attempt_id, None).unwrap();
+    assert_eq!(s.get_session(sess.id).unwrap().accuracy, Some(0.0));
+
+    // Claude も履歴で、直されたことを知れる
+    let h = s.term_history(q1.term_id, 10).unwrap();
+    let e = h.entries.iter().find(|e| e.question_id == q1.id).unwrap();
+    assert_eq!((e.latest_verdict, e.original_verdict), (Some(Verdict::Incorrect), Some(Verdict::Correct)));
+
+    assert!(matches!(s.override_verdict(9999, None), Err(Error::NotFound(_))));
+}
+
+#[test]
+fn question_notes_are_searchable_and_shown_to_claude() {
+    let s = Store::open_in_memory().unwrap();
+    let sess = s.start_session(SessionFormat::TermToMeaning, "Web").unwrap();
+    let q = ask(&s, sess.id, term("CSRF", &[], &[]), None, None);
+    let q = s.set_question_note(q.id, "  SameSite 属性との関係を復習する  ").unwrap();
+    assert_eq!(q.note.as_deref(), Some("SameSite 属性との関係を復習する"));
+
+    let hits = s.search("SameSite", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].kind.as_str(), hits[0].question_id), ("note", Some(q.id)));
+    let h = s.term_history(q.term_id, 10).unwrap();
+    assert_eq!(h.entries[0].note.as_deref(), Some("SameSite 属性との関係を復習する"));
+
+    // 書き換えると古いメモは検索に出ない。空にすると消える
+    s.set_question_note(q.id, "Origin ヘッダの確認").unwrap();
+    assert!(s.search("SameSite", 10).unwrap().is_empty());
+    assert_eq!(s.search("Origin ヘッダ", 10).unwrap().len(), 1);
+    let q = s.set_question_note(q.id, "   ").unwrap();
+    assert_eq!(q.note, None);
+    assert!(s.search("Origin ヘッダ", 10).unwrap().is_empty());
+
+    assert!(matches!(s.set_question_note(q.id, &"あ".repeat(10_001)), Err(Error::Invalid(_))));
+
+    // 問題ごと消えれば索引からも消える
+    s.set_question_note(q.id, "あとで消える").unwrap();
+    s.delete_session(sess.id).unwrap();
+    assert!(s.search("あとで消える", 10).unwrap().is_empty());
+
+    assert!(matches!(s.set_question_note(q.id, "x"), Err(Error::NotFound(_))));
+}
+
+#[test]
+fn tags_can_be_renamed_merged_and_removed() {
+    let s = Store::open_in_memory().unwrap();
+    let a = s.resolve_term(&term("XSS", &[], &["Web", "面接"])).unwrap();
+    let b = s.resolve_term(&term("CSRF", &[], &["web"])).unwrap();
+    let c = s.resolve_term(&term("TCP", &[], &["ネットワーク"])).unwrap();
+    let stats = s.tag_stats().unwrap();
+    let names: Vec<_> = stats.iter().map(|t| (t.tag.as_str(), t.term_count)).collect();
+    assert_eq!(names, vec![("Web", 1), ("web", 1), ("ネットワーク", 1), ("面接", 1)]);
+
+    // 表記ゆれを 1 つにまとめる（重複しない）
+    assert_eq!(s.rename_tag("web", "Web").unwrap(), 1);
+    assert_eq!(s.get_term(b.id).unwrap().tags, vec!["Web"]);
+    s.set_term_tags(b.id, &["Web".into(), "面接".into()]).unwrap();
+    assert_eq!(s.rename_tag("面接", "Web").unwrap(), 2);
+    assert_eq!(s.get_term(a.id).unwrap().tags, vec!["Web"]);
+    assert_eq!(s.get_term(b.id).unwrap().tags, vec!["Web"]);
+
+    assert_eq!(s.remove_tag("ネットワーク").unwrap(), 1);
+    assert!(s.get_term(c.id).unwrap().tags.is_empty());
+    assert_eq!(s.tag_stats().unwrap(), vec![TagStat { tag: "Web".into(), term_count: 2 }]);
+    assert_eq!(s.remove_tag("存在しない").unwrap(), 0);
+    assert!(matches!(s.rename_tag("Web", "  "), Err(Error::Invalid(_))));
+}
+
+#[test]
+fn stats_count_answers_by_day_tag_and_deep_dive() {
+    use chrono::Utc;
+    let s = Store::open_in_memory().unwrap();
+    let today = Utc::now().date_naive();
+    let sess = s.start_session(SessionFormat::Mixed, "統計").unwrap();
+    // 「用語→意味」の木: 根が正解、2 段目で不正解 → 2 段出題、1 段正解
+    let root = ask(&s, sess.id, term("XSS", &[], &["Web"]), None, Some(Format::TermToMeaning));
+    s.record_attempt(&attempt(root.id, Verdict::Correct), today).unwrap();
+    let child = ask(&s, sess.id, term("", &[], &[]), Some(root.id), None);
+    s.record_attempt(&attempt(child.id, Verdict::Incorrect), today).unwrap();
+    // 根が不正解のみの木 → 1 段出題、0 段正解
+    let r2 = ask(&s, sess.id, term("TLS", &[], &["Web", "暗号"]), None, Some(Format::TermToMeaning));
+    s.record_attempt(&attempt(r2.id, Verdict::Incorrect), today).unwrap();
+    // 「意味→用語」とタグなし
+    let m = ask(&s, sess.id, term("TCP", &[], &[]), None, Some(Format::MeaningToTerm));
+    s.record_attempt(&attempt(m.id, Verdict::Partial), today).unwrap();
+
+    let st = s.stats(7, today, &Utc).unwrap();
+    assert_eq!(st.daily.len(), 7);
+    assert_eq!(st.daily.last().unwrap().date, today.format("%Y-%m-%d").to_string());
+    assert_eq!(st.daily.last().unwrap().counts, VerdictCounts { correct: 1, partial: 1, incorrect: 2 });
+    assert_eq!(st.daily[0].counts.total(), 0);
+    assert_eq!((st.question_count, st.term_count), (4, 3));
+    assert_eq!(st.accuracy, Some(1.5 / 4.0));
+    assert_eq!((st.active_days, st.streak_days), (1, 1));
+
+    let web = st.by_tag.iter().find(|t| t.tag == "Web").unwrap();
+    assert_eq!(web.counts, VerdictCounts { correct: 1, partial: 0, incorrect: 2 });
+    assert_eq!(st.by_tag[0].tag, "Web", "回答の多いタグから並べる");
+    let untagged = st.by_tag.iter().find(|t| t.tag == mondeep_core::store::UNTAGGED).unwrap();
+    assert_eq!(untagged.counts.partial, 1);
+
+    assert_eq!(st.deep_trees, 2);
+    assert_eq!(st.avg_reached_levels, Some(1.5));
+    assert_eq!(st.avg_correct_levels, Some(0.5));
+    assert_eq!(st.correct_level_hist, vec![1, 1, 0, 0, 0]);
+
+    // 期間の外（明日から見た 1 日分）は数えない
+    let tomorrow = today.succ_opt().unwrap();
+    let st = s.stats(1, tomorrow, &Utc).unwrap();
+    assert_eq!((st.counts.total(), st.deep_trees, st.streak_days), (0, 0, 1));
+    assert_eq!(st.avg_reached_levels, None);
+}
+
+#[test]
+fn term_export_has_every_question_with_attempts_and_explanation() {
+    let s = Store::open_in_memory().unwrap();
+    let sess = s.start_session(SessionFormat::TermToMeaning, "Web").unwrap();
+    let root = ask(&s, sess.id, term("XSS", &["Cross Site Scripting"], &["Web"]), None, None);
+    let r = s.record_attempt(&attempt(root.id, Verdict::Partial), d("2026-11-20")).unwrap();
+    s.override_verdict(r.attempt_id, Some(Verdict::Correct)).unwrap();
+    s.set_question_note(root.id, "メモ").unwrap();
+    let child = ask(&s, sess.id, term("", &[], &[]), Some(root.id), None);
+    let unanswered = ask(&s, sess.id, term("XSS", &[], &[]), None, None);
+    s.set_diagram_adjustment(root.term_id, "concept", "a", 10.0, 0.0).unwrap();
+
+    let ex = s.term_export(root.term_id).unwrap();
+    assert_eq!(ex.term.headword, "XSS");
+    let ids: Vec<_> = ex.questions.iter().map(|q| q.question.id).collect();
+    assert_eq!(ids, vec![root.id, child.id, unanswered.id]);
+    assert_eq!(ex.questions[0].session_theme, "Web");
+    assert_eq!(ex.questions[0].attempts[0].original_verdict, Some(Verdict::Partial));
+    assert_eq!(ex.questions[0].question.note.as_deref(), Some("メモ"));
+    assert!(ex.questions[0].explanation.is_some());
+    assert!(ex.questions[1].attempts.is_empty() && ex.questions[1].explanation.is_none());
+    assert_eq!(ex.counts, VerdictCounts { correct: 1, partial: 0, incorrect: 0 });
+    assert_eq!(ex.adjustments.len(), 1);
+    // JSON では問題のフィールドが平らに並ぶ（画面側の型と同じ形）
+    let v = serde_json::to_value(&ex).unwrap();
+    assert_eq!(v["questions"][0]["prompt"], json!("XSS について説明してください"));
+
+    s.resolve_term(&term("CSRF", &[], &[])).unwrap();
+    let all = s.export_all().unwrap();
+    assert_eq!(all.iter().map(|e| e.term.headword.as_str()).collect::<Vec<_>>(), vec!["CSRF", "XSS"]);
+}

@@ -8,11 +8,14 @@ import { TermView } from "./views/TermView";
 import { ReviewView } from "./views/ReviewView";
 import { SearchView } from "./views/SearchView";
 import { SettingsView } from "./views/SettingsView";
+import { TagsView } from "./views/TagsView";
+import { StatsView } from "./views/StatsView";
 
 const NAV = [
   { key: "history", label: "履歴", match: ["history", "q"] },
   { key: "review", label: "復習", match: ["review"] },
-  { key: "terms", label: "用語", match: ["terms", "term"] },
+  { key: "terms", label: "用語", match: ["terms", "term", "tags"] },
+  { key: "stats", label: "統計", match: ["stats"] },
   { key: "search", label: "検索", match: ["search"] },
   { key: "settings", label: "設定", match: ["settings"] },
 ];
@@ -50,7 +53,13 @@ export function App() {
       view = <QuestionView id={id} />;
       break;
     case "terms":
-      view = <TermsView />;
+      view = <TermsView key={arg ?? ""} initialTag={arg ?? ""} />;
+      break;
+    case "tags":
+      view = <TagsView />;
+      break;
+    case "stats":
+      view = <StatsView />;
       break;
     case "term":
       view = <TermView id={id} />;

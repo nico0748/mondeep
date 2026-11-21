@@ -33,6 +33,11 @@ export function useRoute(): string[] {
   return path ? path.split("/").map(decodeURIComponent) : ["history"];
 }
 
+/** 日本語入力の変換中（確定の Enter など）のキー操作か。ショートカットはこのとき無視する。 */
+export function isComposing(e: { nativeEvent: KeyboardEvent; keyCode: number }): boolean {
+  return e.nativeEvent.isComposing || e.keyCode === 229;
+}
+
 export function go(path: string) {
   window.location.hash = `#/${path}`;
 }
